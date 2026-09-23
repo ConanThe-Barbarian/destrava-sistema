@@ -179,11 +179,22 @@ function nomeLegivelConfig_(chave) {
   return item && item.rotulo ? item.rotulo : chave;
 }
 
-/** Próximo código legível, ex.: proximoCodigo('PEDIDO', 'PED') → 'PED-0042'. Chamar dentro de comTrava_. */
+const ABA_DO_CONTADOR = { PEDIDO: ABA.PEDIDOS, CLIENTE: ABA.CLIENTES, PRODUTO: ABA.PRODUTOS, INSUMO: ABA.INSUMOS };
+
+/**
+ * Próximo código legível, ex.: proximoCodigo('PEDIDO', 'PED') → 'PED-0042'. Chamar dentro de comTrava_.
+ * Usa o maior entre o contador e o maior código que já existe na aba. Assim, uma linha
+ * digitada à mão com um código (ex.: INS-0001) nunca faz o sistema repetir esse código.
+ */
 function proximoCodigo(tipo, prefixo) {
   const chave = 'CONTADOR_' + tipo;
-  const atual = Number(lerConfig()[chave]) || 0;
-  const novo = atual + 1;
+  const contador = Number(lerConfig()[chave]) || 0;
+  const padrao = new RegExp('^' + prefixo + '-(\\d+)$');
+  const maiorNaAba = lerTabela(ABA_DO_CONTADOR[tipo]).reduce((max, r) => {
+    const m = String(r.codigo).trim().match(padrao);
+    return m ? Math.max(max, Number(m[1])) : max;
+  }, 0);
+  const novo = Math.max(contador, maiorNaAba) + 1;
   salvarConfig({ [chave]: novo }, { semAtividade: true });
   return prefixo + '-' + String(novo).padStart(4, '0');
 }
