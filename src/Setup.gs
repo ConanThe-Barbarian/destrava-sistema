@@ -11,8 +11,13 @@
 
 function configurarPlanilha() {
   const ss = SpreadsheetApp.getActive();
-  ss.setSpreadsheetLocale('pt_BR');
+  // As fórmulas do Esquema estão na sintaxe en-US (vírgula separando argumentos).
+  // Com a planilha em pt_BR, a vírgula vira separador decimal e toda fórmula dá #ERROR!.
+  // Por isso: grava em en_US e só no fim passa para pt_BR. O Sheets converte as
+  // fórmulas já gravadas sozinho (passam a aparecer com ponto e vírgula).
+  ss.setSpreadsheetLocale('en_US');
   ss.setSpreadsheetTimeZone('America/Sao_Paulo');
+  SpreadsheetApp.flush();
 
   // Config primeiro: as fórmulas de Produtos dependem dos intervalos nomeados.
   prepararAba_(ss, ABA.CONFIG);
@@ -33,7 +38,32 @@ function configurarPlanilha() {
   removerAbaPadraoVazia_(ss);
   ss.setActiveSheet(ss.getSheetByName(ABA.PAINEL));
   SpreadsheetApp.flush();
-  console.log('Modelo configurado. Versão ' + VERSAO_MODELO);
+
+  ss.setSpreadsheetLocale('pt_BR');
+  SpreadsheetApp.flush();
+
+  const falhas = verificarFormulas_(ss);
+  if (falhas.length) {
+    throw new Error('Fórmulas com erro depois da montagem: ' + falhas.join('; '));
+  }
+  console.log('Modelo configurado. Versão ' + VERSAO_MODELO + '. Todas as fórmulas conferidas.');
+}
+
+/**
+ * Confere se o cabeçalho de cada coluna calculada mostra o título, e não #ERROR!,
+ * #REF! ou #NAME?. Se a fórmula não compilou, o cabeçalho mostra o erro.
+ */
+function verificarFormulas_(ss) {
+  const falhas = [];
+  Object.keys(ESQUEMA).forEach(nome => {
+    const aba = ss.getSheetByName(nome);
+    ESQUEMA[nome].colunas.forEach((c, i) => {
+      if (!c.formula) return;
+      const exibido = aba.getRange(1, i + 1).getDisplayValue();
+      if (exibido !== c.titulo) falhas.push(nome + '.' + c.chave + ' mostra "' + exibido + '"');
+    });
+  });
+  return falhas;
 }
 
 function prepararAba_(ss, nome) {

@@ -190,9 +190,17 @@ function proximoCodigo(tipo, prefixo) {
 
 // ---------- atividades ----------
 
+/**
+ * E-mail de quem está usando, para o registro de atividades.
+ * Contas pessoais do Google só informam o e-mail para o dono do script; nos
+ * outros casos vem vazio. O registro nunca pode travar uma gravação por isso.
+ */
 function quemEsta_() {
-  const email = Session.getActiveUser().getEmail();
-  return email || 'Usuário da planilha';
+  try {
+    return Session.getActiveUser().getEmail() || 'Usuário da planilha';
+  } catch (e) {
+    return 'Usuário da planilha';
+  }
 }
 
 /** Registra uma frase legível. Nunca JSON, nunca ID técnico. */
