@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <?!= incluir('Estilo') ?>
+</head>
+<body>
+  <div class="topo" id="topo"></div>
+
+  <div class="conteudo">
+    <form id="form" autocomplete="off" novalidate>
+      <h2>Marca</h2>
+      <div class="campo">
+        <label for="nomeNegocio">Nome do negócio</label>
+        <input id="nomeNegocio" name="nomeNegocio" maxlength="60">
+        <small>Aparece nas janelas e no nome do arquivo.</small>
+      </div>
+      <div class="campo">
+        <label for="logoUrl">Link do logo no Google Drive</label>
+        <input id="logoUrl" name="logoUrl" placeholder="https://drive.google.com/file/d/...">
+        <small>O arquivo precisa estar compartilhado como "Qualquer pessoa com o link".</small>
+        <div class="aviso" id="avisoLogo" hidden></div>
+      </div>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="cor">Cor principal</label>
+          <input id="cor" name="cor" type="color" style="height:40px;padding:4px">
+        </div>
+        <div class="campo">
+          <label>Prévia do logo</label>
+          <div id="previa" class="dica" style="height:40px;display:flex;align-items:center;padding:4px 10px">Sem logo</div>
+        </div>
+      </div>
+
+      <h2>Quem instalou o sistema</h2>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="implantadorNome">Nome</label>
+          <input id="implantadorNome" name="implantadorNome" maxlength="60">
+        </div>
+        <div class="campo">
+          <label for="implantadorWhatsapp">WhatsApp</label>
+          <input id="implantadorWhatsapp" name="implantadorWhatsapp" inputmode="tel" placeholder="(11) 91234-5678">
+        </div>
+      </div>
+      <small class="dica" style="display:block">Aparece no rodapé das janelas como contato de suporte.</small>
+
+      <h2>Precificação</h2>
+      <div class="linha-4">
+        <div class="campo">
+          <label for="valorHora">Valor da hora</label>
+          <input id="valorHora" name="valorHora" inputmode="decimal">
+        </div>
+        <div class="campo">
+          <label for="custosFixosPct">Custos fixos</label>
+          <div class="com-sufixo"><input id="custosFixosPct" name="custosFixosPct" inputmode="decimal"><span>%</span></div>
+        </div>
+        <div class="campo">
+          <label for="taxasPct">Taxas</label>
+          <div class="com-sufixo"><input id="taxasPct" name="taxasPct" inputmode="decimal"><span>%</span></div>
+        </div>
+        <div class="campo">
+          <label for="margemPct">Margem</label>
+          <div class="com-sufixo"><input id="margemPct" name="margemPct" inputmode="decimal"><span>%</span></div>
+        </div>
+      </div>
+      <div class="dica" id="resumoPreco"></div>
+    </form>
+  </div>
+
+  <div class="acoes">
+    <button class="btn btn-secundario" data-action="fechar">Fechar</button>
+    <button class="btn btn-principal" data-action="salvar" id="btnSalvar">Salvar</button>
+  </div>
+  <div class="rodape" id="rodape"></div>
+
+  <script>const MARCA = <?!= marcaJson ?>;</script>
+  <?!= incluir('Base') ?>
+  <script>
+    var form = document.getElementById('form');
+    var CAMPOS = ['nomeNegocio', 'logoUrl', 'cor', 'implantadorNome', 'implantadorWhatsapp',
+      'valorHora', 'custosFixosPct', 'taxasPct', 'margemPct'];
+
+    function numeroBR(v) {
+      var s = String(v || '').replace(/[R$\s%]/g, '');
+      if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+      var n = Number(s);
+      return s === '' || !isFinite(n) ? null : n;
+    }
+    function formatarBR(n) { return String(n).replace('.', ','); }
+
+    // Explica, em reais, o efeito dos percentuais. Mostra o problema antes de salvar.
+    function atualizarResumo() {
+      var soma = (numeroBR(form.custosFixosPct.value) || 0) + (numeroBR(form.taxasPct.value) || 0) + (numeroBR(form.margemPct.value) || 0);
+      var el = document.getElementById('resumoPreco');
+      if (soma >= 100) {
+        el.style.color = 'var(--erro)';
+        el.textContent = 'Custos fixos + taxas + margem somam ' + formatarBR(soma) + '%. Precisa ficar abaixo de 100%.';
+        return;
+      }
+      el.style.color = '';
+      var exemplo = 10 / (1 - soma / 100);
+      el.textContent = 'Com esses números, um produto que custa R$ 10,00 em materiais tem preço sugerido de R$ '
+        + exemplo.toFixed(2).replace('.', ',') + ' (sem contar horas de trabalho).';
+    }
+
+    function linkParaPrevia(link) {
+      var m = link.match(/\/d\/([\w-]{20,})/) || link.match(/[?&]id=([\w-]{20,})/) || link.match(/^([\w-]{20,})$/);
+      if (m) return 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w200';
+      return /^https:\/\//.test(link) ? link : '';
+    }
+
+    function atualizarPrevia() {
+      var url = linkParaPrevia(form.logoUrl.value.trim());
+      var previa = document.getElementById('previa');
+      var aviso = document.getElementById('avisoLogo');
+      aviso.hidden = true;
+      if (!url) { previa.textContent = 'Sem logo'; return; }
+      previa.innerHTML = '<img src="' + escapar(url) + '" style="height:32px;object-fit:contain" alt="">';
+      previa.querySelector('img').addEventListener('error', function () {
+        previa.textContent = 'Sem logo';
+        // DD-17 como aviso no próprio campo: não impede salvar o restante.
+        aviso.textContent = 'Não foi possível carregar o logo. Confira se o link está compartilhado como "Qualquer pessoa com o link". (DD-17)';
+        aviso.hidden = false;
+      });
+    }
+
+    ['custosFixosPct', 'taxasPct', 'margemPct'].forEach(function (n) { form[n].addEventListener('input', atualizarResumo); });
+    form.logoUrl.addEventListener('change', atualizarPrevia);
+    form.implantadorWhatsapp.addEventListener('blur', function () {
+      var d = this.value.replace(/\D/g, '');
+      if (d.length >= 10) this.value = formatarWhats(d);
+    });
+
+    ACOES.salvar = function () {
+      var faltando = [];
+      if (!form.nomeNegocio.value.trim()) faltando.push('nomeNegocio');
+      ['valorHora', 'custosFixosPct', 'taxasPct', 'margemPct'].forEach(function (n) {
+        var v = numeroBR(form[n].value);
+        if (v === null || v < 0) faltando.push(n);
+      });
+      marcarErros(form, faltando);
+      if (faltando.length) {
+        mostrarErro({ codigo: 'DD-10', titulo: 'Falta preencher alguns campos.', acao: 'Preencha os campos destacados em vermelho.' });
+        return;
+      }
+      var dados = {};
+      CAMPOS.forEach(function (n) { dados[n] = form[n].value; });
+      var btn = document.getElementById('btnSalvar');
+      btn.disabled = true; btn.textContent = 'Salvando…';
+      chamar('salvarConfiguracoes', dados)
+        .then(function (r) {
+          avisoRapido(r.alteradas ? 'Configurações salvas' : 'Nada mudou');
+          // Atualiza a marca na própria janela.
+          MARCA.nome = r.marca.nome; MARCA.logo = r.marca.logo; MARCA.cor = r.marca.cor;
+          document.documentElement.style.setProperty('--cor', r.marca.cor);
+          document.documentElement.style.setProperty('--cor-suave', hexParaRgba(r.marca.cor, 0.14));
+        })
+        .catch(mostrarErro)
+        .then(function () { btn.disabled = false; btn.textContent = 'Salvar'; });
+    };
+
+    // Carregamento inicial (executa direto: DOMContentLoaded não é confiável no Apps Script).
+    chamar('carregarConfiguracoes')
+      .then(function (c) {
+        form.nomeNegocio.value = c.nomeNegocio;
+        form.logoUrl.value = c.logoUrl;
+        form.cor.value = /^#[0-9a-f]{6}$/i.test(c.cor) ? c.cor : '#8b7bff';
+        form.implantadorNome.value = c.implantadorNome;
+        form.implantadorWhatsapp.value = c.implantadorWhatsapp ? formatarWhats(c.implantadorWhatsapp) : '';
+        form.valorHora.value = formatarBR(c.valorHora);
+        form.custosFixosPct.value = formatarBR(c.custosFixosPct);
+        form.taxasPct.value = formatarBR(c.taxasPct);
+        form.margemPct.value = formatarBR(c.margemPct);
+        atualizarResumo();
+        atualizarPrevia();
+      })
+      .catch(mostrarErro);
+  </script>
+</body>
+</html>

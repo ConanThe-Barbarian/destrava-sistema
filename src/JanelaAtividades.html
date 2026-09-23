@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <?!= incluir('Estilo') ?>
+  <style>
+    .lista { list-style: none; }
+    .lista li { padding: 10px 0; border-bottom: 1px solid var(--linha); }
+    .lista li:last-child { border-bottom: 0; }
+    .lista .meta { font-size: 12px; color: var(--texto-2); }
+    .filtro { margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <div class="topo" id="topo"></div>
+
+  <div class="conteudo">
+    <div class="campo filtro">
+      <input id="busca" placeholder="Filtrar por pedido, cliente, produto…">
+    </div>
+    <ul class="lista" id="lista"><li class="carregando">Carregando…</li></ul>
+  </div>
+
+  <div class="acoes">
+    <button class="btn btn-secundario" data-action="fechar">Fechar</button>
+  </div>
+  <div class="rodape" id="rodape"></div>
+
+  <script>const MARCA = <?!= marcaJson ?>;</script>
+  <?!= incluir('Base') ?>
+  <script>
+    var todas = [];
+
+    function desenhar() {
+      var termo = document.getElementById('busca').value.trim().toLowerCase();
+      var itens = todas.filter(function (a) { return !termo || a.oque.toLowerCase().indexOf(termo) >= 0; });
+      var lista = document.getElementById('lista');
+      if (!itens.length) {
+        lista.innerHTML = '<li class="vazio">' + (todas.length ? 'Nada encontrado com esse filtro.' : 'Nenhuma atividade registrada ainda.') + '</li>';
+        return;
+      }
+      lista.innerHTML = itens.map(function (a) {
+        return '<li><div>' + escapar(a.oque) + '</div><div class="meta">' + escapar(a.quando) + ' · ' + escapar(a.quem) + '</div></li>';
+      }).join('');
+    }
+
+    document.getElementById('busca').addEventListener('input', desenhar);
+
+    chamar('listarAtividades')
+      .then(function (r) { todas = r; desenhar(); })
+      .catch(function (e) {
+        document.getElementById('lista').innerHTML = '';
+        mostrarErro(e);
+      });
+  </script>
+</body>
+</html>

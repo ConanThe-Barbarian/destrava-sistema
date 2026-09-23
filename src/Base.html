@@ -1,0 +1,141 @@
+<!-- Janela própria de aviso/confirmação e aviso rápido. Incluído no fim do <body>. -->
+<div class="sobre" id="sobre" role="dialog" aria-modal="true" aria-labelledby="sobre-titulo">
+  <div class="caixa">
+    <h3 id="sobre-titulo"></h3>
+    <p id="sobre-texto"></p>
+    <div class="codigo" id="sobre-codigo"></div>
+    <div class="acoes" id="sobre-acoes"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+  // ---------- marca do cliente ----------
+  (function aplicarMarca() {
+    var raiz = document.documentElement.style;
+    raiz.setProperty('--cor', MARCA.cor);
+    raiz.setProperty('--cor-suave', hexParaRgba(MARCA.cor, 0.14));
+
+    var topo = document.getElementById('topo');
+    if (topo) {
+      var inicial = '<div class="marca-inicial">' + escapar((MARCA.nome || '?').charAt(0).toUpperCase()) + '</div>';
+      topo.innerHTML = (MARCA.logo
+        ? '<img src="' + escapar(MARCA.logo) + '" alt="" data-logo>'
+        : inicial) + '<strong>' + escapar(MARCA.nome) + '</strong>';
+      var img = topo.querySelector('[data-logo]');
+      if (img) img.addEventListener('error', function () { img.outerHTML = inicial; });
+    }
+
+    var rodape = document.getElementById('rodape');
+    if (rodape) {
+      var suporte = MARCA.implantador
+        ? 'Suporte: ' + escapar(MARCA.implantador) + (MARCA.whatsapp ? ' · ' + escapar(formatarWhats(MARCA.whatsapp)) : '')
+        : '';
+      rodape.innerHTML = '<span>' + suporte + '</span>' + (MARCA.mostrarMarcaDestrava ? '<span>feito com Destrava Digital</span>' : '');
+    }
+  })();
+
+  // ---------- chamada ao servidor ----------
+  // Sempre resolve com os dados ou rejeita com { codigo, titulo, acao }.
+  function chamar(nomeFuncao) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolver, rejeitar) {
+      var runner = google.script.run
+        .withSuccessHandler(function (r) {
+          if (r && r.ok) resolver(r.dados);
+          else rejeitar((r && r.erro) || erroGenerico());
+        })
+        .withFailureHandler(function () { rejeitar(erroGenerico()); });
+      runner[nomeFuncao].apply(runner, args);
+    });
+  }
+
+  function erroGenerico() {
+    return { codigo: 'DD-99', titulo: 'Algo deu errado e nada foi salvo.',
+      acao: 'Tente de novo. Se repetir, envie o código DD-99 e o horário para quem instalou o sistema.' };
+  }
+
+  // ---------- janelas próprias ----------
+  function abrirSobre(titulo, texto, codigo, botoes) {
+    document.getElementById('sobre-titulo').textContent = titulo;
+    document.getElementById('sobre-texto').textContent = texto || '';
+    document.getElementById('sobre-codigo').textContent = codigo ? 'Código: ' + codigo : '';
+    var acoes = document.getElementById('sobre-acoes');
+    acoes.innerHTML = '';
+    return new Promise(function (resolver) {
+      botoes.forEach(function (b) {
+        var el = document.createElement('button');
+        el.className = 'btn ' + (b.classe || 'btn-secundario');
+        el.textContent = b.texto;
+        el.addEventListener('click', function () { fecharSobre(); resolver(b.valor); });
+        acoes.appendChild(el);
+      });
+      document.getElementById('sobre').classList.add('aberta');
+      acoes.lastChild.focus();
+    });
+  }
+  function fecharSobre() { document.getElementById('sobre').classList.remove('aberta'); }
+
+  function mostrarErro(erro) {
+    erro = erro || erroGenerico();
+    return abrirSobre(erro.titulo, erro.acao, erro.codigo, [{ texto: 'Entendi', classe: 'btn-principal', valor: true }]);
+  }
+
+  function confirmar(titulo, texto, textoOk, perigo) {
+    return abrirSobre(titulo, texto, '', [
+      { texto: 'Cancelar', valor: false },
+      { texto: textoOk || 'Confirmar', classe: perigo ? 'btn-perigo' : 'btn-principal', valor: true }
+    ]);
+  }
+
+  function avisoRapido(texto) {
+    var t = document.getElementById('toast');
+    t.textContent = texto;
+    t.classList.add('visivel');
+    setTimeout(function () { t.classList.remove('visivel'); }, 2200);
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && document.getElementById('sobre').classList.contains('aberta')) {
+      var primeiro = document.querySelector('#sobre-acoes button');
+      if (primeiro) primeiro.click();
+    }
+  });
+
+  // ---------- ações por delegação (data-action) ----------
+  // Handlers inline e DOMContentLoaded não são confiáveis no sandbox do Apps Script.
+  var ACOES = {};
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-action]');
+    if (el && ACOES[el.getAttribute('data-action')]) {
+      e.preventDefault();
+      ACOES[el.getAttribute('data-action')](el, e);
+    }
+  });
+
+  // ---------- utilitários ----------
+  function escapar(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function hexParaRgba(hex, a) {
+    var h = hex.replace('#', '');
+    return 'rgba(' + parseInt(h.substr(0, 2), 16) + ',' + parseInt(h.substr(2, 2), 16) + ',' + parseInt(h.substr(4, 2), 16) + ',' + a + ')';
+  }
+  function formatarWhats(d) {
+    d = String(d).replace(/\D/g, '');
+    if (d.length === 11) return '(' + d.substr(0, 2) + ') ' + d.substr(2, 5) + '-' + d.substr(7);
+    if (d.length === 10) return '(' + d.substr(0, 2) + ') ' + d.substr(2, 4) + '-' + d.substr(6);
+    return d;
+  }
+  function marcarErros(form, nomesCampos) {
+    form.querySelectorAll('.campo').forEach(function (c) { c.classList.remove('erro'); });
+    (nomesCampos || []).forEach(function (n) {
+      var el = form.querySelector('[name="' + n + '"]');
+      if (el) el.closest('.campo').classList.add('erro');
+    });
+  }
+  function fecharJanela() { google.script.host.close(); }
+  ACOES.fechar = fecharJanela;
+</script>
