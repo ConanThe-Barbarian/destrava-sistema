@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <?!= incluir('Estilo') ?>
+  <style>
+    .tabela { width: 100%; border-collapse: collapse; margin-top: 4px; }
+    .tabela th { text-align: left; font-size: 12px; color: var(--texto-2); font-weight: 600; padding: 6px 4px; border-bottom: 1px solid var(--linha); }
+    .tabela td { padding: 6px 4px; border-bottom: 1px solid var(--linha); vertical-align: middle; }
+    .tabela select, .tabela input { font: inherit; padding: 7px 8px; border: 1px solid var(--linha); border-radius: 8px; width: 100%; background: #fff; }
+    .tabela .qtd { width: 120px; }
+    .tabela .custo { width: 100px; text-align: right; color: var(--texto-2); white-space: nowrap; }
+    .tabela .remover { width: 36px; text-align: center; }
+    .remover button { border: 0; background: none; cursor: pointer; color: var(--texto-2); font-size: 18px; line-height: 1; }
+    .remover button:hover { color: var(--erro); }
+    .com-un { position: relative; }
+    .com-un span { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: var(--texto-2); font-size: 12px; }
+    .com-un input { padding-right: 30px; }
+    .total { display: flex; justify-content: space-between; font-weight: 700; padding: 12px 4px 4px; }
+    .adicionar { margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="topo" id="topo"></div>
+
+  <div class="conteudo">
+    <div class="campo">
+      <label for="produto">Produto</label>
+      <select id="produto"><option>Carregando…</option></select>
+      <small id="dicaTipo"></small>
+    </div>
+
+    <div id="area" hidden>
+      <h2>Insumos em 1 <span id="unProduto">un</span> do produto</h2>
+      <table class="tabela">
+        <thead><tr><th>Insumo</th><th class="qtd">Quantidade</th><th class="custo">Custo</th><th class="remover"></th></tr></thead>
+        <tbody id="linhas"></tbody>
+      </table>
+      <button class="btn btn-secundario adicionar" data-action="adicionar">+ Adicionar insumo</button>
+      <div class="total"><span>Custo dos insumos por unidade</span><span id="total">R$ 0,00</span></div>
+    </div>
+
+    <div class="vazio" id="semProdutos" hidden>
+      Nenhum produto cadastrado ainda. Cadastre em Destrava › Cadastrar › Produto.
+    </div>
+    <div class="vazio" id="semInsumos" hidden>
+      Nenhum insumo cadastrado ainda. Cadastre em Destrava › Cadastrar › Insumo.
+    </div>
+  </div>
+
+  <div class="acoes">
+    <button class="btn btn-secundario" data-action="fechar">Fechar</button>
+    <button class="btn btn-principal" data-action="salvar" id="btnSalvar" disabled>Salvar ficha</button>
+  </div>
+  <div class="rodape" id="rodape"></div>
+
+  <script>const MARCA = <?!= marcaJson ?>; const PARAMS = <?!= parametrosJson ?>;</script>
+  <?!= incluir('Base') ?>
+  <script>
+    var DADOS = null;
+    var alterado = false;
+    var selProduto = document.getElementById('produto');
+    var anterior = '';
+
+    function numeroBR(v) {
+      var s = String(v || '').replace(/\s/g, '');
+      if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+      var n = Number(s);
+      return s === '' || !isFinite(n) ? null : n;
+    }
+    function reais(n) { return 'R$ ' + (n || 0).toFixed(2).replace('.', ','); }
+    function insumoPorCodigo(c) { return DADOS.insumos.filter(function (i) { return i.codigo === c; })[0]; }
+    function produtoAtual() { return DADOS.produtos.filter(function (p) { return p.codigo === selProduto.value; })[0]; }
+
+    function linhaHtml(item) {
+      var opcoes = '<option value="">Escolha…</option>' + DADOS.insumos.map(function (i) {
+        return '<option value="' + escapar(i.codigo) + '"' + (item && item.insumo === i.codigo ? ' selected' : '') + '>' + escapar(i.nome) + '</option>';
+      }).join('');
+      var qtd = item && item.quantidade ? String(item.quantidade).replace('.', ',') : '';
+      return '<tr><td><select data-campo="insumo">' + opcoes + '</select></td>'
+        + '<td class="qtd"><div class="com-un"><input data-campo="quantidade" inputmode="decimal" value="' + escapar(qtd) + '"><span data-un></span></div></td>'
+        + '<td class="custo" data-custo></td>'
+        + '<td class="remover"><button type="button" data-action="remover" title="Remover">×</button></td></tr>';
+    }
+
+    function desenharFicha() {
+      var p = produtoAtual();
+      document.getElementById('unProduto').textContent = p.unidade;
+      document.getElementById('dicaTipo').textContent = p.tipo === 'Pronta-entrega'
+        ? 'Produto de pronta-entrega: a ficha serve para calcular o custo. Na venda, o estoque baixado é o do produto pronto.'
+        : 'Produto de encomenda: estes insumos são baixados do estoque quando o pedido entra em produção.';
+      var itens = DADOS.fichas[p.codigo] || [];
+      document.getElementById('linhas').innerHTML = (itens.length ? itens : [null]).map(linhaHtml).join('');
+      recalcular();
+      alterado = false;
+    }
+
+    function recalcular() {
+      var total = 0;
+      document.querySelectorAll('#linhas tr').forEach(function (tr) {
+        var ins = insumoPorCodigo(tr.querySelector('[data-campo="insumo"]').value);
+        var q = numeroBR(tr.querySelector('[data-campo="quantidade"]').value) || 0;
+        tr.querySelector('[data-un]').textContent = ins ? ins.unidade : '';
+        var c = ins ? q * ins.custo : 0;
+        total += c;
+        tr.querySelector('[data-custo]').textContent = ins && q ? reais(c) : '';
+      });
+      document.getElementById('total').textContent = reais(total);
+    }
+
+    function coletar() {
+      var itens = [], erros = [];
+      document.querySelectorAll('#linhas tr').forEach(function (tr, i) {
+        var insumo = tr.querySelector('[data-campo="insumo"]').value;
+        var qtdEl = tr.querySelector('[data-campo="quantidade"]');
+        if (!insumo && !qtdEl.value.trim()) return; // linha vazia é ignorada
+        var q = numeroBR(qtdEl.value);
+        tr.querySelectorAll('select, input').forEach(function (el) { el.style.borderColor = ''; });
+        if (!insumo) { erros.push(i); tr.querySelector('select').style.borderColor = 'var(--erro)'; }
+        if (!q || q <= 0) { erros.push(i); qtdEl.style.borderColor = 'var(--erro)'; }
+        itens.push({ insumo: insumo, quantidade: qtdEl.value });
+      });
+      return { itens: itens, erros: erros };
+    }
+
+    document.getElementById('linhas').addEventListener('input', function () { alterado = true; recalcular(); });
+    document.getElementById('linhas').addEventListener('change', function () { alterado = true; recalcular(); });
+
+    selProduto.addEventListener('change', function () {
+      if (!alterado) { anterior = selProduto.value; desenharFicha(); return; }
+      var novo = selProduto.value;
+      selProduto.value = anterior;
+      confirmar('Descartar as alterações?', 'A ficha deste produto tem mudanças que ainda não foram salvas.', 'Descartar', true)
+        .then(function (ok) {
+          if (!ok) return;
+          selProduto.value = novo; anterior = novo; desenharFicha();
+        });
+    });
+
+    ACOES.adicionar = function () {
+      document.getElementById('linhas').insertAdjacentHTML('beforeend', linhaHtml(null));
+      var selects = document.querySelectorAll('#linhas select');
+      selects[selects.length - 1].focus();
+    };
+
+    ACOES.remover = function (el) {
+      el.closest('tr').remove();
+      if (!document.querySelector('#linhas tr')) ACOES.adicionar();
+      alterado = true;
+      recalcular();
+    };
+
+    ACOES.salvar = function () {
+      var r = coletar();
+      if (r.erros.length) {
+        mostrarErro({ codigo: 'DD-10', titulo: 'Há linhas incompletas na ficha.', acao: 'Escolha o insumo e informe a quantidade nas linhas destacadas em vermelho, ou remova a linha.' });
+        return;
+      }
+      var p = produtoAtual();
+      var enviar = function () {
+        var btn = document.getElementById('btnSalvar');
+        btn.disabled = true; btn.textContent = 'Salvando…';
+        chamar('salvarFicha', p.codigo, r.itens)
+          .then(function (res) {
+            DADOS.fichas[p.codigo] = r.itens.map(function (i) { return { insumo: i.insumo, quantidade: numeroBR(i.quantidade) }; });
+            alterado = false;
+            avisoRapido(res.itens ? 'Ficha salva' : 'Ficha removida');
+          })
+          .catch(mostrarErro)
+          .then(function () { btn.disabled = false; btn.textContent = 'Salvar ficha'; });
+      };
+      if (!r.itens.length && (DADOS.fichas[p.codigo] || []).length) {
+        confirmar('Remover a ficha técnica?', 'Sem ficha, o custo dos insumos deste produto fica zerado e a produção não baixa estoque.', 'Remover ficha', true)
+          .then(function (ok) { if (ok) enviar(); });
+      } else {
+        enviar();
+      }
+    };
+
+    // Fechar com alterações pendentes pede confirmação na janela própria.
+    ACOES.fechar = function () {
+      if (!alterado) { fecharJanela(); return; }
+      confirmar('Fechar sem salvar?', 'As alterações desta ficha serão perdidas.', 'Fechar sem salvar', true)
+        .then(function (ok) { if (ok) fecharJanela(); });
+    };
+
+    chamar('carregarFicha')
+      .then(function (d) {
+        DADOS = d;
+        if (!d.produtos.length) { selProduto.parentNode.hidden = true; document.getElementById('semProdutos').hidden = false; return; }
+        if (!d.insumos.length) { document.getElementById('semInsumos').hidden = false; }
+        selProduto.innerHTML = d.produtos.map(function (p) {
+          return '<option value="' + escapar(p.codigo) + '">' + escapar(p.nome) + ' (' + escapar(p.tipo.toLowerCase()) + ')</option>';
+        }).join('');
+        if (PARAMS.codigoInicial && d.produtos.some(function (p) { return p.codigo === PARAMS.codigoInicial; })) {
+          selProduto.value = PARAMS.codigoInicial;
+        }
+        anterior = selProduto.value;
+        if (d.insumos.length) {
+          document.getElementById('area').hidden = false;
+          document.getElementById('btnSalvar').disabled = false;
+          desenharFicha();
+        }
+      })
+      .catch(mostrarErro);
+  </script>
+</body>
+</html>

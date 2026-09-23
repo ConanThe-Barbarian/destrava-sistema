@@ -2,7 +2,7 @@
 
 Código Apps Script da planilha modelo. A pasta `src/` é a fonte da verdade: o editor do Apps Script é só onde o código roda.
 
-## Estado atual: bloco 1 — fundação
+## Bloco 1 — fundação
 
 | Arquivo | O que faz |
 | --- | --- |
@@ -48,9 +48,31 @@ Código Apps Script da planilha modelo. A pasta `src/` é a fonte da verdade: o 
 - [ ] Renomear a aba Caixa e abrir Configurações mostra a DD-21, não um erro técnico
 - [ ] Nenhuma janela usa alert ou confirm do navegador
 
+## Bloco 2 — cadastros e ficha técnica
+
+| Arquivo | O que faz |
+| --- | --- |
+| `Cadastros.gs` + `JanelaCadastro.html` | Destrava › Cadastrar › Cliente, Produto e Insumo. Gera o código, recusa nome repetido (DD-18) e dados inválidos (DD-19) |
+| `FichaTecnica.gs` + `JanelaFicha.html` | Destrava › Ficha técnica: insumos por unidade do produto, com custo calculado na hora |
+
+Regra de uso: **criar** cadastros sempre pelo menu (é ele que gera o código). **Alterar** um cadastro existente pode ser direto na célula.
+
+### Roteiro de teste do bloco 2
+
+- [ ] Cadastrar › Cliente com WhatsApp de 11 dígitos grava `(11) 91234-5678` e código `CLI-0001`
+- [ ] Cadastrar o mesmo nome de novo, com maiúsculas ou sem acento, mostra a DD-18
+- [ ] WhatsApp com 5 dígitos ou e-mail sem domínio mostram a DD-19
+- [ ] Cadastrar › Insumo: "Paguei 6,50 por 1000 g" calcula custo 0,0065; "Quanto tem hoje" 5000 faz o saldo em Insumos mostrar 5.000
+- [ ] Cadastrar › Produto (encomenda, 1,5 h, preço 80) mostra a prévia do preço e o botão "Montar ficha técnica"
+- [ ] O botão abre a Ficha técnica já com o produto escolhido
+- [ ] Ficha com 300 g de farinha: o total da janela confere com a coluna "Custo dos insumos" em Produtos após salvar
+- [ ] O mesmo insumo em duas linhas mostra a DD-19; quantidade zero também
+- [ ] Trocar de produto ou fechar com alterações pede confirmação na janela própria
+- [ ] Remover todas as linhas e salvar pede confirmação e apaga a ficha
+- [ ] Atividades mostra as frases de cada cadastro e ficha, com custo por grama em 4 casas (R$ 0,0065)
+
 ## Próximos blocos
 
-2. Cadastros pelo menu (cliente, produto, insumo) e ficha técnica
 3. Pedidos, itens e pagamentos
 4. Estoque (entrada, ajuste, baixa e estorno) e caixa
 5. Painel

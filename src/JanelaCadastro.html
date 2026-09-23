@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <?!= incluir('Estilo') ?>
+  <style>
+    form[hidden] { display: none; }
+    .sucesso { text-align: center; padding: 24px 8px; }
+    .sucesso h3 { font-size: 17px; margin-bottom: 6px; }
+    .sucesso p { color: var(--texto-2); margin-bottom: 16px; }
+    .sucesso .acoes { justify-content: center; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <div class="topo" id="topo"></div>
+
+  <div class="conteudo" id="conteudo">
+
+    <!-- CLIENTE -->
+    <form id="form-cliente" hidden autocomplete="off" novalidate>
+      <div class="campo">
+        <label for="c-nome">Nome *</label>
+        <input id="c-nome" name="nome" maxlength="80">
+      </div>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="c-whatsapp">WhatsApp</label>
+          <input id="c-whatsapp" name="whatsapp" inputmode="tel" placeholder="(11) 91234-5678">
+        </div>
+        <div class="campo">
+          <label for="c-email">E-mail</label>
+          <input id="c-email" name="email" inputmode="email">
+        </div>
+      </div>
+      <div class="campo">
+        <label for="c-endereco">Endereço</label>
+        <input id="c-endereco" name="endereco" maxlength="200">
+      </div>
+      <div class="campo">
+        <label for="c-obs">Observações</label>
+        <textarea id="c-obs" name="obs" rows="3" maxlength="300" placeholder="Ex.: prefere retirar no ateliê; alergia a amendoim"></textarea>
+      </div>
+    </form>
+
+    <!-- PRODUTO -->
+    <form id="form-produto" hidden autocomplete="off" novalidate>
+      <div class="campo">
+        <label for="p-nome">Nome *</label>
+        <input id="p-nome" name="nome" maxlength="80" placeholder="Ex.: Bolo de chocolate 1 kg">
+      </div>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="p-tipo">Tipo *</label>
+          <select id="p-tipo" name="tipo"></select>
+          <small id="p-tipo-dica"></small>
+        </div>
+        <div class="campo">
+          <label for="p-unidade">Unidade de venda *</label>
+          <select id="p-unidade" name="unidade"></select>
+        </div>
+      </div>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="p-horas">Horas de trabalho por unidade</label>
+          <input id="p-horas" name="horas" inputmode="decimal" placeholder="Ex.: 1,5">
+        </div>
+        <div class="campo">
+          <label for="p-custoCompra">Custo de compra (R$)</label>
+          <input id="p-custoCompra" name="custoCompra" inputmode="decimal" placeholder="0,00">
+          <small>Só se você compra o produto pronto para revender.</small>
+        </div>
+      </div>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="p-preco">Preço de venda (R$)</label>
+          <input id="p-preco" name="preco" inputmode="decimal" placeholder="0,00">
+        </div>
+        <div class="campo" id="p-minimo-campo">
+          <label for="p-minimo">Estoque mínimo</label>
+          <input id="p-minimo" name="minimo" inputmode="decimal" placeholder="0">
+        </div>
+      </div>
+      <div class="dica" id="p-previa"></div>
+    </form>
+
+    <!-- INSUMO -->
+    <form id="form-insumo" hidden autocomplete="off" novalidate>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="i-nome">Nome *</label>
+          <input id="i-nome" name="nome" maxlength="80" placeholder="Ex.: Farinha de trigo">
+        </div>
+        <div class="campo">
+          <label for="i-unidade">Unidade de controle *</label>
+          <select id="i-unidade" name="unidade"></select>
+          <small>A unidade usada na ficha técnica. Ex.: g para farinha.</small>
+        </div>
+      </div>
+
+      <h2>Quanto custa</h2>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="i-pacote-preco">Paguei (R$)</label>
+          <input id="i-pacote-preco" inputmode="decimal" placeholder="Ex.: 6,50">
+        </div>
+        <div class="campo">
+          <label for="i-pacote-qtd">Por quantos <span class="un">g</span></label>
+          <input id="i-pacote-qtd" inputmode="decimal" placeholder="Ex.: 1000">
+        </div>
+      </div>
+      <div class="campo">
+        <label for="i-custoMedio">Custo por <span class="un">g</span> (R$)</label>
+        <input id="i-custoMedio" name="custoMedio" inputmode="decimal" placeholder="Calculado a partir do que você pagou">
+        <small>Preencha "Paguei" e "Por quantos" e o custo é calculado sozinho. Ou digite direto.</small>
+      </div>
+
+      <h2>Estoque</h2>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="i-saldo">Quanto tem hoje (<span class="un">g</span>)</label>
+          <input id="i-saldo" name="saldoInicial" inputmode="decimal" placeholder="0">
+        </div>
+        <div class="campo">
+          <label for="i-minimo">Avisar quando ficar abaixo de (<span class="un">g</span>)</label>
+          <input id="i-minimo" name="minimo" inputmode="decimal" placeholder="0">
+        </div>
+      </div>
+    </form>
+
+    <div class="carregando" id="carregando">Carregando…</div>
+  </div>
+
+  <div class="acoes" id="acoes">
+    <button class="btn btn-secundario" data-action="fechar">Fechar</button>
+    <button class="btn btn-principal" data-action="salvar" id="btnSalvar" disabled>Cadastrar</button>
+  </div>
+  <div class="rodape" id="rodape"></div>
+
+  <script>const MARCA = <?!= marcaJson ?>; const PARAMS = <?!= parametrosJson ?>;</script>
+  <?!= incluir('Base') ?>
+  <script>
+    var TIPO = PARAMS.tipo;
+    var form = document.getElementById('form-' + TIPO);
+    var APOIO = null;
+    var NOMES = { cliente: 'Cliente', produto: 'Produto', insumo: 'Insumo' };
+    var FUNCOES = { cliente: 'salvarCliente', produto: 'salvarProduto', insumo: 'salvarInsumo' };
+
+    function numeroBR(v) {
+      var s = String(v || '').replace(/[R$\s%]/g, '');
+      if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+      var n = Number(s);
+      return s === '' || !isFinite(n) ? null : n;
+    }
+    function reais(n, casas) { return 'R$ ' + (n || 0).toFixed(casas || 2).replace('.', ','); }
+    function opcoes(select, lista, padrao) {
+      select.innerHTML = lista.map(function (v) {
+        return '<option' + (v === padrao ? ' selected' : '') + '>' + escapar(v) + '</option>';
+      }).join('');
+    }
+
+    // ---------- produto ----------
+    function atualizarProduto() {
+      var pronta = form.tipo.value === 'Pronta-entrega';
+      document.getElementById('p-minimo-campo').style.visibility = pronta ? 'visible' : 'hidden';
+      document.getElementById('p-tipo-dica').textContent = pronta
+        ? 'Tem estoque do produto pronto; a venda baixa o produto.'
+        : 'Feito sob pedido; a produção baixa os insumos da ficha técnica.';
+
+      var previa = document.getElementById('p-previa');
+      if (APOIO.somaPercentuais >= 1) {
+        previa.textContent = 'O preço sugerido não pode ser calculado: custos fixos, taxas e margem passam de 100% em Configurações.';
+        return;
+      }
+      var custo = (numeroBR(form.custoCompra.value) || 0) + (numeroBR(form.horas.value) || 0) * APOIO.valorHora;
+      var sugerido = custo / (1 - APOIO.somaPercentuais);
+      previa.textContent = custo > 0
+        ? 'Preço sugerido até aqui: ' + reais(sugerido) + '. O custo dos insumos entra depois, quando você montar a ficha técnica.'
+        : 'O preço sugerido aparece quando você informar horas de trabalho, custo de compra ou montar a ficha técnica.';
+    }
+
+    // ---------- insumo ----------
+    function atualizarUnidadeInsumo() {
+      document.querySelectorAll('#form-insumo .un').forEach(function (el) { el.textContent = form.unidade.value; });
+    }
+    function calcularCustoPacote() {
+      var preco = numeroBR(document.getElementById('i-pacote-preco').value);
+      var qtd = numeroBR(document.getElementById('i-pacote-qtd').value);
+      if (preco !== null && qtd) {
+        form.custoMedio.value = String(Math.round(preco / qtd * 10000) / 10000).replace('.', ',');
+      }
+    }
+
+    // ---------- salvar ----------
+    ACOES.salvar = function () {
+      var obrig = ['nome'];
+      var faltando = obrig.filter(function (n) { return !form[n].value.trim(); });
+      marcarErros(form, faltando);
+      if (faltando.length) {
+        mostrarErro({ codigo: 'DD-10', titulo: 'Falta preencher o nome.', acao: 'Preencha os campos destacados em vermelho.' });
+        return;
+      }
+      var dados = {};
+      Array.prototype.forEach.call(form.elements, function (el) { if (el.name) dados[el.name] = el.value; });
+
+      var btn = document.getElementById('btnSalvar');
+      btn.disabled = true; btn.textContent = 'Cadastrando…';
+      chamar(FUNCOES[TIPO], dados)
+        .then(mostrarSucesso)
+        .catch(function (e) {
+          mostrarErro(e);
+          btn.disabled = false; btn.textContent = 'Cadastrar';
+        });
+    };
+
+    function mostrarSucesso(r) {
+      form.hidden = true;
+      var botoes = '<button class="btn btn-secundario" data-action="fechar">Fechar</button>'
+        + '<button class="btn btn-principal" data-action="outro">Cadastrar outro</button>';
+      if (TIPO === 'produto' && r.tipo === 'Encomenda') {
+        botoes += '<button class="btn btn-principal" data-action="ficha" data-codigo="' + escapar(r.codigo) + '">Montar ficha técnica</button>';
+      }
+      var extra = document.createElement('div');
+      extra.className = 'sucesso';
+      extra.id = 'sucesso';
+      extra.innerHTML = '<h3>' + NOMES[TIPO] + ' cadastrado</h3><p>' + escapar(r.codigo) + ' — ' + escapar(r.nome) + '</p>'
+        + '<div class="acoes">' + botoes + '</div>';
+      document.getElementById('conteudo').appendChild(extra);
+      document.getElementById('acoes').hidden = true;
+    }
+
+    ACOES.outro = function () {
+      form.reset();
+      prepararFormulario();
+      var s = document.getElementById('sucesso'); if (s) s.remove();
+      form.hidden = false;
+      document.getElementById('acoes').hidden = false;
+      var btn = document.getElementById('btnSalvar'); btn.disabled = false; btn.textContent = 'Cadastrar';
+      form.nome.focus();
+    };
+
+    ACOES.ficha = function (el) {
+      el.disabled = true; el.textContent = 'Abrindo…';
+      google.script.run.abrirFichaTecnica(el.getAttribute('data-codigo'));
+    };
+
+    function prepararFormulario() {
+      if (TIPO === 'produto') {
+        opcoes(form.tipo, APOIO.tiposProduto, 'Encomenda');
+        opcoes(form.unidade, APOIO.unidades, 'un');
+        atualizarProduto();
+      }
+      if (TIPO === 'insumo') {
+        opcoes(form.unidade, APOIO.unidades, 'g');
+        atualizarUnidadeInsumo();
+      }
+    }
+
+    // ---------- início ----------
+    if (TIPO === 'cliente') {
+      form.whatsapp.addEventListener('blur', function () {
+        var d = this.value.replace(/\D/g, '');
+        if (d.length >= 10) this.value = formatarWhats(d);
+      });
+    }
+    if (TIPO === 'produto') {
+      ['tipo', 'horas', 'custoCompra'].forEach(function (n) {
+        form[n].addEventListener('input', atualizarProduto);
+        form[n].addEventListener('change', atualizarProduto);
+      });
+    }
+    if (TIPO === 'insumo') {
+      form.unidade.addEventListener('change', atualizarUnidadeInsumo);
+      ['i-pacote-preco', 'i-pacote-qtd'].forEach(function (id) {
+        document.getElementById(id).addEventListener('input', calcularCustoPacote);
+      });
+    }
+
+    chamar('carregarCadastro')
+      .then(function (apoio) {
+        APOIO = apoio;
+        prepararFormulario();
+        document.getElementById('carregando').remove();
+        form.hidden = false;
+        document.getElementById('btnSalvar').disabled = false;
+        form.nome.focus();
+      })
+      .catch(mostrarErro);
+  </script>
+</body>
+</html>

@@ -7,8 +7,14 @@
  */
 
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('Destrava')
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('Destrava')
+    .addSubMenu(ui.createMenu('Cadastrar')
+      .addItem('Cliente', 'abrirCadastroCliente')
+      .addItem('Produto', 'abrirCadastroProduto')
+      .addItem('Insumo', 'abrirCadastroInsumo'))
+    .addItem('Ficha técnica', 'abrirFichaTecnica')
+    .addSeparator()
     .addItem('Configurações', 'abrirConfiguracoes')
     .addItem('Atividades', 'abrirAtividades')
     .addToUi();

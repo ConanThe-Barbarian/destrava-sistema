@@ -22,6 +22,8 @@ const MENSAGENS = {
   'DD-15': { titulo: 'O pagamento é maior que o saldo do pedido ({saldo}).', acao: 'Corrija o valor. Se for gorjeta ou acréscimo, lance a diferença no caixa como entrada avulsa.' },
   'DD-16': { titulo: 'A soma de custos fixos, taxas e margem passa de 100%. Nenhum preço consegue cobrir isso.', acao: 'Reduza algum dos percentuais em Configurações.' },
   'DD-17': { titulo: 'Não foi possível carregar o logo.', acao: 'Confira se o link da imagem no Drive está compartilhado como "Qualquer pessoa com o link".' },
+  'DD-18': { titulo: 'Já existe {tipo} com o nome "{nome}".', acao: 'Use um nome diferente, ou altere o cadastro que já existe direto na aba {aba}.' },
+  'DD-19': { titulo: 'O campo {campo} não parece válido.', acao: '{dica}' },
   'DD-20': { titulo: 'Outra pessoa está salvando algo agora.', acao: 'Aguarde alguns segundos e tente de novo.' },
   'DD-21': { titulo: 'Uma aba do sistema foi apagada ou renomeada: {aba}.', acao: 'Desfaça a alteração (Ctrl+Z) ou restaure a versão anterior em Arquivo › Histórico de versões.' },
   'DD-99': { titulo: 'Algo deu errado e nada foi salvo.', acao: 'Tente de novo. Se repetir, envie o código DD-99 e o horário para quem instalou o sistema.' }
@@ -201,12 +203,17 @@ function registrarAtividade(frase) {
 // ---------- janelas ----------
 
 /** Abre uma janela (modal) a partir de um arquivo HTML, já com a marca do cliente. */
-function abrirJanela_(arquivo, titulo, largura, altura) {
+function abrirJanela_(arquivo, titulo, largura, altura, parametros) {
   const t = HtmlService.createTemplateFromFile(arquivo);
-  // Vai para o HTML como JSON; "<" escapado para um nome de negócio nunca fechar a tag <script>.
-  t.marcaJson = JSON.stringify(marcaAtual_()).replace(/</g, '\\u003c');
+  // Vão para o HTML como JSON; "<" escapado para um texto do usuário nunca fechar a tag <script>.
+  t.marcaJson = jsonSeguro_(marcaAtual_());
+  t.parametrosJson = jsonSeguro_(parametros || {});
   const html = t.evaluate().setWidth(largura || 560).setHeight(altura || 560);
   SpreadsheetApp.getUi().showModalDialog(html, titulo);
+}
+
+function jsonSeguro_(obj) {
+  return JSON.stringify(obj).replace(/</g, '\\u003c');
 }
 
 /** Inclui um arquivo HTML dentro de outro (estilo e script compartilhados). */
@@ -236,4 +243,32 @@ function urlLogo_(link) {
   const m = link.match(/\/d\/([\w-]{20,})/) || link.match(/[?&]id=([\w-]{20,})/) || link.match(/^([\w-]{20,})$/);
   if (m) return 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w200';
   return /^https:\/\//.test(link) ? link : '';
+}
+
+// ---------- utilitários de texto ----------
+
+/** Texto limpo e limitado. Impede que um texto comece com =, +, - ou @ e vire fórmula. */
+function texto_(v, max) {
+  let s = String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max || 200);
+  if (/^[=+\-@]/.test(s)) s = "'" + s;
+  return s;
+}
+
+function normalizar_(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
+
+function formatarWhats_(d) {
+  d = String(d || '').replace(/\D/g, '');
+  if (d.length === 11) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7);
+  if (d.length === 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6);
+  return d;
+}
+
+/** Reais com 2 casas; custos unitários abaixo de R$ 1 (ex.: preço por grama) ganham 4 casas. */
+function moedaBR_(n, unitario) {
+  const v = Number(n) || 0;
+  const casas = unitario && Math.abs(v) < 1 ? 4 : 2;
+  const partes = v.toFixed(casas).split('.');
+  return 'R$ ' + partes[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + partes[1];
 }
