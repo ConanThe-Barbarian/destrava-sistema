@@ -24,6 +24,7 @@ function testarSistema() {
 
   try {
     testarEstrutura_(ss, r);
+    const painelAntes = lerPainel_();
     testarConfiguracoes_(r, antes);
     testarClientes_(r);
     const insumo = testarInsumos_(r);
@@ -31,6 +32,7 @@ function testarSistema() {
     if (insumo && produto) testarFicha_(r, insumo, produto, antes.config);
     if (insumo && produto) testarPedidos_(r, insumo, produto);
     testarEstoqueCaixa_(r);
+    if (insumo && produto) testarPainel_(r, painelAntes);
     testarAtividades_(r);
   } catch (e) {
     r.falha('O teste parou no meio por um erro inesperado', String(e && e.stack ? e.stack : e));
@@ -428,6 +430,57 @@ function testarEstoqueCaixa_(r) {
   r.verdadeiro('Atividades: ajuste com motivo', frases.some(f => f.indexOf('ajustado de 2500 para 2400') >= 0 && f.indexOf('Perda ou quebra') >= 0));
 }
 
+/**
+ * Painel: compara os números com a fotografia tirada antes dos testes.
+ * Diferenças esperadas vêm dos testes de pedidos e de estoque e caixa (todos no mês atual).
+ */
+function testarPainel_(r, antes) {
+  const tz = Session.getScriptTimeZone();
+  const iso = dias => Utilities.formatDate(new Date(Date.now() + dias * 864e5), tz, 'yyyy-MM-dd');
+  const mesmoMes = iso(-1).slice(0, 7) === iso(0).slice(0, 7);
+  const ss = SpreadsheetApp.getActive();
+
+  // Um pedido para amanhã, um atrasado e um insumo abaixo do mínimo.
+  const cliente = MARCA_TESTE + ' Carla Souza';
+  const prod = salvarProduto({ nome: MARCA_TESTE + ' Torta do painel', tipo: 'Encomenda', unidade: 'un', preco: '10' });
+  const amanha = prod.ok && salvarPedido({ cliente: cliente, entrega: iso(1), status: 'Confirmado', itens: [{ produto: prod.dados.codigo, quantidade: '1', preco: '10' }] });
+  const atrasado = prod.ok && salvarPedido({ cliente: cliente, entrega: iso(-2), status: 'Confirmado', confirmado: true,
+    itens: [{ produto: prod.dados.codigo, quantidade: '2', preco: '10' }] });
+  salvarInsumo({ nome: MARCA_TESTE + ' Leite condensado', unidade: 'un', custoMedio: '6', minimo: '10' });
+  if (!amanha || !amanha.ok || !atrasado.ok) { r.falha('Painel: preparar pedidos', 'não consegui criar os pedidos do teste'); return; }
+
+  const p = lerPainel_();
+  r.verdadeiro('Painel: nenhuma célula com erro de fórmula', !errosDoPainel_(ss).length, errosDoPainel_(ss).join('; '));
+  r.perto('Painel: Vendido soma só os entregues no mês (150 + 15)', p.vendido - antes.vendido, 165);
+  r.perto('Painel: Recebido soma as entradas do mês (50 + 100 + 100 + 200 + 10)', p.recebido - antes.recebido, 460);
+  r.perto('Painel: Resultado do caixa = entradas − saídas', p.resultado - antes.resultado, 460 - 60 - 30 - 36 - (mesmoMes ? 120.5 : 0));
+  r.perto('Painel: A receber ignora cancelados e orçamentos (15 + 10 + 20)', p.aReceber - antes.aReceber, 45);
+  r.perto('Painel: Pedidos em aberto conta os 2 confirmados', p.emAberto - antes.emAberto, 2);
+  r.verdadeiro('Painel: Margem média é um percentual', typeof p.margem === 'number' && p.margem > -10 && p.margem <= 1, String(p.margem));
+
+  const entregas = p.exibidos.slice(15, 15 + PAINEL.LINHAS_LISTA).map(l => l[2]);
+  const iA = entregas.indexOf(atrasado.dados.codigo), iB = entregas.indexOf(amanha.dados.codigo);
+  r.verdadeiro('Painel: entregas dos próximos 7 dias listam os dois pedidos', iA >= 0 && iB >= 0, entregas.filter(String).join(', '));
+  r.verdadeiro('Painel: entrega atrasada vem antes', iA >= 0 && iA < iB);
+  const repor = p.exibidos.slice(32, 32 + PAINEL.LINHAS_LISTA).map(l => l[1]);
+  r.verdadeiro('Painel: insumo abaixo do mínimo aparece para repor', repor.indexOf(MARCA_TESTE + ' Leite condensado') >= 0, repor.filter(String).join(', '));
+
+  // Seletor de mês: escolher o mês anterior muda o período.
+  const aba = ss.getSheetByName(ABA.PAINEL);
+  const original = aba.getRange(PAINEL.MES).getValue();
+  aba.getRange(PAINEL.MES).setValue(aba.getRange('L3').getValue());
+  SpreadsheetApp.flush();
+  const ini = aba.getRange(PAINEL.INICIO).getValue();
+  const esperado = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
+  r.igual('Painel: escolher o mês anterior muda o período', ini instanceof Date && Utilities.formatDate(ini, tz, 'yyyy-MM'), Utilities.formatDate(esperado, tz, 'yyyy-MM'));
+  aba.getRange(PAINEL.MES).setValue(original);
+  SpreadsheetApp.flush();
+
+  // Os dois pedidos ficam abertos: cancela para não sobrar nada no painel real.
+  mudarStatus(amanha.dados.codigo, 'Cancelado');
+  mudarStatus(atrasado.dados.codigo, 'Cancelado');
+}
+
 function testarAtividades_(r) {
   const frases = lerTabela(ABA.ATIVIDADES).map(a => String(a.oque));
   r.verdadeiro('Atividades: cadastro de cliente registrado', frases.some(f => f.indexOf('Cliente cadastrado') === 0));
@@ -454,6 +507,7 @@ function restaurar_(ss, antes) {
     if (agora > antes.linhas[n]) aba.deleteRows(antes.linhas[n] + 1, agora - antes.linhas[n]);
   });
   restaurarConfig_(antes.config);
+  pintarPainel_(ss, String(antes.config.NOME_NEGOCIO || 'Painel'), String(antes.config.COR_PRINCIPAL || '#8b7bff'));
   if (ss.getName() !== antes.nomeArquivo) ss.rename(antes.nomeArquivo);
   SpreadsheetApp.flush();
 }

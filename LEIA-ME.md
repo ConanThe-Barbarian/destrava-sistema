@@ -6,7 +6,7 @@ Código Apps Script da planilha modelo. A pasta `src/` é a fonte da verdade: o 
 
 No editor do Apps Script, escolha a função **`testarSistema`** e clique em **Executar**. Em cerca de 1 minuto aparece uma janela na planilha com o relatório (✅ ou ❌ em cada verificação). O mesmo texto fica no Registro de execução.
 
-- Confere estrutura, fórmulas, configurações, cadastros, ficha técnica, cálculo de preço, pedidos (ciclo, pagamento, baixa e estorno de estoque, cancelamento), entrada e ajuste de estoque, custo médio, caixa avulso e atividades.
+- Confere estrutura, fórmulas, configurações, cadastros, ficha técnica, cálculo de preço, pedidos (ciclo, pagamento, baixa e estorno de estoque, cancelamento), entrada e ajuste de estoque, custo médio, caixa avulso, painel do mês e atividades.
 - Usa a própria planilha com dados marcados `[TESTE]` e, no fim, apaga tudo e devolve configurações, contadores e nome do arquivo como estavam.
 - Não use a planilha enquanto ele roda.
 - Rode depois de cada `clasp push`. Cada bloco novo acrescenta os testes dele.
@@ -140,9 +140,40 @@ Depois do `clasp push`, rode `configurarPlanilha` uma vez. Ele acrescenta o tipo
 - [ ] Escolher "Venda sem pedido" mostra a dica de usar Novo pedido para produtos com estoque
 - [ ] Excluir um lançamento avulso pede confirmação e registra em Atividades; lançamento de pedido não tem botão de excluir
 
+## Bloco 5 — painel do mês
+
+| Arquivo | O que faz |
+| --- | --- |
+| `Painel.gs` | Monta a aba Painel: 6 números, 2 listas e o gráfico dos últimos 6 meses, tudo por fórmula |
+
+O painel se atualiza sozinho. O dono só escolhe o mês na lista (em branco = mês atual). A cor e o nome do negócio vêm de Configurações.
+
+| Número | Conta |
+| --- | --- |
+| Vendido no mês | Total dos pedidos marcados Entregue no mês (pela nova coluna "Entregue em" da aba Pedidos) |
+| Recebido no mês | Entradas do caixa no mês, sem "Dinheiro colocado pelo dono" |
+| A receber | Saldo dos pedidos, sem cancelados e sem orçamentos |
+| Margem média | (Vendido − custo de materiais dos entregues) ÷ Vendido. Não desconta hora nem custos fixos |
+| Resultado do caixa | Todas as entradas − todas as saídas do mês |
+| Pedidos em aberto | Confirmados, em produção e prontos (orçamentos aparecem na legenda) |
+
+Listas: entregas até daqui a 7 dias, com os atrasados em vermelho; e insumos abaixo do mínimo. Cada lista mostra 12 linhas e avisa quando há mais.
+
+Depois do `clasp push`, rode `configurarPlanilha`. Ele cria a coluna "Entregue em" em Pedidos e monta o painel. Pedidos entregues antes desta versão não têm essa data e não entram no Vendido.
+
+### Roteiro de teste do bloco 5
+
+- [ ] O painel abre sem nenhum #ERROR!, com o nome e a cor do negócio no título
+- [ ] Entregar um pedido hoje soma o total dele em Vendido; registrar o pagamento soma em Recebido
+- [ ] Uma entrada "Dinheiro colocado pelo dono" não muda Recebido, mas muda Resultado do caixa
+- [ ] Um orçamento não entra em A receber nem em Pedidos em aberto (aparece na legenda)
+- [ ] Pedido confirmado com entrega em 3 dias aparece em Entregas; com data vencida aparece em vermelho, antes dos outros
+- [ ] Insumo abaixo do mínimo aparece em Insumos para repor
+- [ ] Escolher o mês passado na lista muda os 6 números e o gráfico; apagar a célula volta ao mês atual
+- [ ] Mudar a cor em Configurações muda o título, os cartões e o gráfico
+
 ## Próximos blocos
 
-5. Painel
 6. Licença real (depois da API)
 
 Antes de gerar o modelo de venda: `MODO_DESENVOLVIMENTO = false` em `Licenca.gs`.

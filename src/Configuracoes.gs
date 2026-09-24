@@ -64,6 +64,7 @@ function salvarConfiguracoes(form) {
       const ss = SpreadsheetApp.getActive();
       const nomeArquivo = nome + ' — Gestão';
       if (ss.getName() !== nomeArquivo) ss.rename(nomeArquivo);
+      pintarPainel_(ss, nome, cor);
       return { alteradas: alteradas.length, marca: marcaAtual_() };
     });
   });

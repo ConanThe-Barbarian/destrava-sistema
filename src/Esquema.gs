@@ -82,7 +82,9 @@ const ESQUEMA = {
         formula: L => `IF(${L.codigo}2:${L.codigo}="",,IF(${L.status}2:${L.status}="Cancelado",0,${L.total}2:${L.total}-${L.pago}2:${L.pago}))` },
       { chave: 'custo', titulo: 'Custo', largura: 100, formato: FMT.MOEDA,
         formula: L => `IF(${L.codigo}2:${L.codigo}="",,SUMIF(${ref(ABA.ITENS,'pedido')},${L.codigo}2:${L.codigo},${ref(ABA.ITENS,'custoTotal')}))` },
-      { chave: 'obs', titulo: 'Observações', largura: 240 }
+      { chave: 'obs', titulo: 'Observações', largura: 240 },
+      // Gravada pelo sistema ao marcar Entregue. É ela que diz em que mês a venda conta no Painel.
+      { chave: 'entregueEm', titulo: 'Entregue em', largura: 110, formato: FMT.DATA }
     ]
   },
 

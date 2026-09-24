@@ -23,12 +23,10 @@ function configurarPlanilha() {
   prepararAba_(ss, ABA.CONFIG);
   preencherConfigPadrao_(ss);
 
-  const ordem = [ABA.PAINEL, ABA.PEDIDOS, ABA.CLIENTES, ABA.PRODUTOS, ABA.INSUMOS, ABA.CAIXA,
-    ABA.ITENS, ABA.FICHA, ABA.MOVIMENTOS, ABA.ATIVIDADES];
-  ordem.forEach(nome => {
-    if (nome === ABA.PAINEL) prepararPainel_(ss);
-    else prepararAba_(ss, nome);
-  });
+  [ABA.PEDIDOS, ABA.CLIENTES, ABA.PRODUTOS, ABA.INSUMOS, ABA.CAIXA,
+    ABA.ITENS, ABA.FICHA, ABA.MOVIMENTOS, ABA.ATIVIDADES].forEach(nome => prepararAba_(ss, nome));
+  // Painel por último: as fórmulas dele apontam para colunas das outras abas, que precisam já existir.
+  prepararPainel_(ss);
 
   // Ordem das abas: as visíveis primeiro, na ordem de uso.
   [ABA.PAINEL, ABA.PEDIDOS, ABA.CLIENTES, ABA.PRODUTOS, ABA.INSUMOS, ABA.CAIXA,
@@ -63,7 +61,7 @@ function verificarFormulas_(ss) {
       if (exibido !== c.titulo) falhas.push(nome + '.' + c.chave + ' mostra "' + exibido + '"');
     });
   });
-  return falhas;
+  return falhas.concat(errosDoPainel_(ss));
 }
 
 function prepararAba_(ss, nome) {
@@ -162,12 +160,7 @@ function preencherConfigPadrao_(ss) {
 function prepararPainel_(ss) {
   let aba = ss.getSheetByName(ABA.PAINEL);
   if (!aba) aba = ss.insertSheet(ABA.PAINEL);
-  // O painel completo é montado na etapa do painel. Aqui só garantimos a aba e a marca.
-  if (!aba.getRange('A1').getValue()) {
-    aba.getRange('A1').setValue('Painel').setFontSize(18).setFontWeight('bold');
-  }
-  aba.setTabColor('#1f2640');
-  aba.showSheet();
+  montarPainel_(ss, aba);
 }
 
 function removerAbaPadraoVazia_(ss) {

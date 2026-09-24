@@ -200,7 +200,7 @@ function mudarStatus(codigo, novo, opcoes) {
         itens.filter(i => i.tipo === tiposBaixados && i.baixado !== true)
           .forEach(i => atualizarLinha(ABA.ITENS, i._linha, { baixado: true }));
       }
-      atualizarLinha(ABA.PEDIDOS, p._linha, { status: novo });
+      atualizarLinha(ABA.PEDIDOS, p._linha, novo === 'Entregue' ? { status: novo, entregueEm: new Date() } : { status: novo });
 
       const saldo = saldoDoPedido_(p, itens);
       registrarAtividade('Pedido ' + p.codigo + ': ' + p.status + ' → ' + novo + '.'
