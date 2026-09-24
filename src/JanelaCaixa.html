@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <?!= incluir('Estilo') ?>
+  <style>
+    .mes { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .mes strong { font-size: 15px; text-transform: capitalize; }
+    .mes button { font: inherit; border: 1px solid var(--linha); background: var(--fundo-2); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+    .mes button:disabled { opacity: .4; cursor: default; }
+    .resumo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 8px; }
+    .resumo div { background: var(--fundo-2); border-radius: 8px; padding: 10px 12px; }
+    .resumo small { display: block; color: var(--texto-2); font-size: 12px; }
+    .resumo b { font-size: 16px; }
+    .pos { color: var(--ok); } .neg { color: var(--erro); }
+    .novo { border: 1px solid var(--linha); border-radius: var(--raio); padding: 14px; margin: 14px 0; }
+    .opcoes { display: flex; gap: 8px; margin-bottom: 12px; }
+    .opcoes label { flex: 1; text-align: center; border: 1px solid var(--linha); border-radius: 8px; padding: 8px; cursor: pointer; font-weight: 600; }
+    .opcoes input { display: none; }
+    .opcoes label:has(input:checked) { border-color: var(--cor); background: var(--cor-suave); }
+    .lista { list-style: none; }
+    .lista li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 9px 2px; border-bottom: 1px solid var(--linha); }
+    .lista .desc { font-weight: 600; }
+    .lista small { display: block; color: var(--texto-2); font-size: 12px; font-weight: 400; }
+    .lista .valor { font-weight: 700; white-space: nowrap; }
+    .lista .excluir { border: 0; background: none; cursor: pointer; color: var(--texto-2); font-size: 18px; line-height: 1; width: 24px; }
+    .lista .excluir:hover { color: var(--erro); }
+    .lista .fixo { width: 24px; }
+  </style>
+</head>
+<body>
+  <div class="topo" id="topo"></div>
+
+  <div class="conteudo">
+    <div class="mes">
+      <button data-action="mesAnterior" title="Mês anterior">‹</button>
+      <strong id="nomeMes"></strong>
+      <button data-action="mesSeguinte" id="btnSeguinte" title="Mês seguinte">›</button>
+    </div>
+    <div class="resumo">
+      <div><small>Entrou</small><b id="entradas" class="pos">—</b></div>
+      <div><small>Saiu</small><b id="saidas" class="neg">—</b></div>
+      <div><small>Resultado do mês</small><b id="resultado">—</b></div>
+    </div>
+
+    <form class="novo" id="form" autocomplete="off">
+      <h2>Novo lançamento</h2>
+      <div class="opcoes">
+        <label><input type="radio" name="tipo" value="Saída" checked> Saída</label>
+        <label><input type="radio" name="tipo" value="Entrada"> Entrada</label>
+      </div>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="categoria">Categoria</label>
+          <select id="categoria" name="categoria"></select>
+        </div>
+        <div class="campo">
+          <label for="valor">Valor</label>
+          <input id="valor" name="valor" inputmode="decimal" placeholder="R$">
+        </div>
+      </div>
+      <div class="campo">
+        <label for="descricao">Descrição</label>
+        <input id="descricao" name="descricao" maxlength="150" placeholder="Ex.: conta de luz de setembro">
+      </div>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="forma">Forma de pagamento</label>
+          <select id="forma" name="forma"></select>
+        </div>
+        <div class="campo">
+          <label for="data">Data</label>
+          <input type="date" id="data" name="data">
+        </div>
+      </div>
+      <div class="dica" id="dicaVenda" hidden>Vendeu um produto que tem estoque? Use Destrava › Novo pedido: assim o estoque baixa junto.</div>
+      <div class="acoes">
+        <button class="btn btn-principal" data-action="lancar" id="btnLancar" disabled>Lançar</button>
+      </div>
+    </form>
+
+    <h2>Lançamentos do mês</h2>
+    <ul class="lista" id="lista"></ul>
+    <div class="carregando" id="carregando">Carregando…</div>
+    <div class="vazio" id="vazio" hidden>Nenhum lançamento neste mês.</div>
+  </div>
+
+  <div class="acoes">
+    <button class="btn btn-secundario" data-action="fechar">Fechar</button>
+  </div>
+  <div class="rodape" id="rodape"></div>
+
+  <script>const MARCA = <?!= marcaJson ?>; const PARAMS = <?!= parametrosJson ?>;</script>
+  <?!= incluir('Base') ?>
+  <script>
+    var DADOS = null;
+    var mesAtual = '';
+    var mesHoje = '';
+    var form = document.getElementById('form');
+    var el = function (id) { return document.getElementById(id); };
+    var MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+    function reais(n) { return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    function tipo() { return form.querySelector('[name="tipo"]:checked').value; }
+    function somarMes(mes, n) {
+      var a = Number(mes.slice(0, 4)), m = Number(mes.slice(5, 7)) - 1 + n;
+      a += Math.floor(m / 12); m = ((m % 12) + 12) % 12;
+      return a + '-' + (m < 9 ? '0' : '') + (m + 1);
+    }
+
+    function montarCategorias() {
+      el('categoria').innerHTML = '<option value="">Escolha…</option>' + DADOS.categorias[tipo()].map(function (c) {
+        return '<option>' + escapar(c) + '</option>';
+      }).join('');
+      el('dicaVenda').hidden = true;
+    }
+
+    function desenhar() {
+      var d = DADOS;
+      el('nomeMes').textContent = MESES[Number(d.mes.slice(5, 7)) - 1] + ' de ' + d.mes.slice(0, 4);
+      el('btnSeguinte').disabled = d.mes >= mesHoje;
+      el('entradas').textContent = reais(d.entradas);
+      el('saidas').textContent = reais(d.saidas);
+      el('resultado').textContent = reais(d.resultado);
+      el('resultado').className = d.resultado < 0 ? 'neg' : 'pos';
+      el('vazio').hidden = d.lancamentos.length > 0;
+      el('lista').innerHTML = d.lancamentos.map(function (l, i) {
+        var origem = l.pedido ? 'Pedido ' + escapar(l.pedido) : escapar(l.categoria);
+        return '<li><div class="desc">' + escapar(l.descricao) + '<small>' + escapar(l.data) + ' · ' + origem + ' · ' + escapar(l.forma) + '</small></div>'
+          + '<span class="valor ' + (l.tipo === 'Entrada' ? 'pos' : 'neg') + '">' + (l.tipo === 'Entrada' ? '+ ' : '− ') + reais(l.valor) + '</span>'
+          + (l.pedido ? '<span class="fixo" title="Corrija pelo pedido"></span>'
+            : '<button class="excluir" data-action="excluir" data-i="' + i + '" title="Excluir lançamento">×</button>')
+          + '</li>';
+      }).join('');
+    }
+
+    function carregar(mes) {
+      el('carregando').hidden = false;
+      return chamar('carregarCaixa', mes || '')
+        .then(function (d) {
+          var primeira = !DADOS;
+          DADOS = d; mesAtual = d.mes;
+          if (primeira) {
+            mesHoje = d.mes;
+            el('forma').innerHTML = d.formas.map(function (f) { return '<option>' + escapar(f) + '</option>'; }).join('');
+            el('data').value = d.hoje;
+            el('data').max = d.hoje;
+            montarCategorias();
+            el('btnLancar').disabled = false;
+          }
+          desenhar();
+        })
+        .catch(mostrarErro)
+        .then(function () { el('carregando').hidden = true; });
+    }
+
+    form.addEventListener('submit', function (e) { e.preventDefault(); });
+    form.addEventListener('change', function (e) {
+      if (e.target.name === 'tipo') montarCategorias();
+      if (e.target.id === 'categoria') el('dicaVenda').hidden = e.target.value !== 'Venda sem pedido';
+    });
+
+    ACOES.mesAnterior = function () { carregar(somarMes(mesAtual, -1)); };
+    ACOES.mesSeguinte = function () { if (mesAtual < mesHoje) carregar(somarMes(mesAtual, 1)); };
+
+    ACOES.lancar = function () {
+      var dados = {
+        tipo: tipo(), categoria: el('categoria').value, descricao: el('descricao').value,
+        valor: el('valor').value, forma: el('forma').value, data: el('data').value
+      };
+      var btn = el('btnLancar');
+      btn.disabled = true; btn.textContent = 'Lançando…';
+      chamar('lancarNoCaixa', dados)
+        .then(function () {
+          ['valor', 'descricao'].forEach(function (id) { el(id).value = ''; });
+          el('categoria').value = '';
+          el('dicaVenda').hidden = true;
+          marcarErros(form, []);
+          avisoRapido((dados.tipo === 'Entrada' ? 'Entrada' : 'Saída') + ' lançada');
+          return carregar(dados.data ? dados.data.slice(0, 7) : mesAtual);
+        })
+        .catch(function (e) {
+          var mapa = { 'categoria': 'categoria', 'descrição': 'descricao', 'valor': 'valor', 'forma': 'forma', 'data': 'data' };
+          var campo = Object.keys(mapa).filter(function (k) { return (e.titulo || '').toLowerCase().indexOf(k) >= 0; })[0];
+          marcarErros(form, campo ? [mapa[campo]] : []);
+          mostrarErro(e);
+        })
+        .then(function () { btn.disabled = false; btn.textContent = 'Lançar'; });
+    };
+
+    ACOES.excluir = function (botao) {
+      var l = DADOS.lancamentos[Number(botao.getAttribute('data-i'))];
+      confirmar('Excluir este lançamento?',
+        (l.tipo === 'Entrada' ? 'Entrada' : 'Saída') + ' de ' + reais(l.valor) + ' em ' + l.data + ': ' + l.descricao + '. A exclusão fica registrada em Atividades.',
+        'Excluir', true)
+        .then(function (ok) {
+          if (!ok) return;
+          return chamar('excluirLancamento', l.linha, l.assinatura)
+            .then(function () { avisoRapido('Lançamento excluído'); return carregar(mesAtual); })
+            .catch(function (e) { mostrarErro(e); return carregar(mesAtual); });
+        });
+    };
+
+    carregar('');
+  </script>
+</body>
+</html>

@@ -6,7 +6,7 @@ Código Apps Script da planilha modelo. A pasta `src/` é a fonte da verdade: o 
 
 No editor do Apps Script, escolha a função **`testarSistema`** e clique em **Executar**. Em cerca de 1 minuto aparece uma janela na planilha com o relatório (✅ ou ❌ em cada verificação). O mesmo texto fica no Registro de execução.
 
-- Confere estrutura, fórmulas, configurações, cadastros, ficha técnica, cálculo de preço, pedidos (ciclo, pagamento, baixa e estorno de estoque, cancelamento) e atividades.
+- Confere estrutura, fórmulas, configurações, cadastros, ficha técnica, cálculo de preço, pedidos (ciclo, pagamento, baixa e estorno de estoque, cancelamento), entrada e ajuste de estoque, custo médio, caixa avulso e atividades.
 - Usa a própria planilha com dados marcados `[TESTE]` e, no fim, apaga tudo e devolve configurações, contadores e nome do arquivo como estavam.
 - Não use a planilha enquanto ele roda.
 - Rode depois de cada `clasp push`. Cada bloco novo acrescenta os testes dele.
@@ -106,9 +106,42 @@ Regras: um passo de status por vez (Orçamento → Confirmado → Em produção 
 - [ ] Pedido com entrega vencida aparece marcado como atrasado na lista
 - [ ] Atividades conta cada passo em frase legível
 
+## Bloco 4 — estoque e caixa
+
+| Arquivo | O que faz |
+| --- | --- |
+| `Estoque.gs` + `JanelaEstoque.html` | Destrava › Entrada de estoque e Ajuste de estoque (a mesma janela, em dois modos) |
+| `Caixa.gs` + `JanelaCaixa.html` | Destrava › Caixa: resumo do mês, lançamento avulso e exclusão de avulso |
+
+Regras:
+
+- **Compra de insumo** recalcula o custo médio: (saldo × custo atual + valor pago) ÷ (saldo + quantidade). Com saldo zerado ou negativo, vale o custo da compra.
+- **Produto de pronta-entrega** entra de dois jeitos:
+  - "Produzi aqui": baixa os insumos da ficha como "Saída por produção";
+  - "Comprei pronto": recalcula o custo de compra pela mesma média.
+- **Compra** pode lançar a saída no caixa na hora.
+- **Ajuste**: informe quanto existe de verdade e o motivo (obrigatório). O sistema grava só a diferença.
+- **Caixa**:
+  - pedidos lançam o próprio dinheiro; aqui entra só o avulso;
+  - data futura é recusada;
+  - lançamento de pedido não se exclui por aqui.
+
+Depois do `clasp push`, rode `configurarPlanilha` uma vez. Ele acrescenta o tipo "Saída por produção" à lista da aba Movimentos.
+
+### Roteiro de teste do bloco 4
+
+- [ ] Entrada de 1000 g de um insumo a R$ 0,01 por R$ 30 mostra na janela "custo médio passa a R$ 0,0200" antes de salvar; depois, Insumos confere
+- [ ] A mesma compra com "Lançar a saída no caixa" aparece no Caixa como Compra de insumos
+- [ ] Produto de pronta-entrega com ficha abre em "Produzi aqui"; produzir 10 baixa os insumos e soma 10 ao produto
+- [ ] Produzir mais do que os insumos permitem pede confirmação (DD-14); sem ficha, avisa (DD-13)
+- [ ] Ajuste: contar menos do que o sistema mostra a diferença negativa e pede confirmação; sem motivo, DD-10
+- [ ] Caixa abre no mês atual com Entrou, Saiu e Resultado; setas trocam de mês e não passam do mês atual
+- [ ] Lançar saída de conta de luz com data de ontem aparece com a data de ontem
+- [ ] Escolher "Venda sem pedido" mostra a dica de usar Novo pedido para produtos com estoque
+- [ ] Excluir um lançamento avulso pede confirmação e registra em Atividades; lançamento de pedido não tem botão de excluir
+
 ## Próximos blocos
 
-4. Estoque (entrada com custo médio e ajuste) e caixa avulso
 5. Painel
 6. Licença real (depois da API)
 

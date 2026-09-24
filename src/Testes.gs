@@ -30,6 +30,7 @@ function testarSistema() {
     const produto = testarProdutos_(r);
     if (insumo && produto) testarFicha_(r, insumo, produto, antes.config);
     if (insumo && produto) testarPedidos_(r, insumo, produto);
+    testarEstoqueCaixa_(r);
     testarAtividades_(r);
   } catch (e) {
     r.falha('O teste parou no meio por um erro inesperado', String(e && e.stack ? e.stack : e));
@@ -308,12 +309,131 @@ function testarPedidos_(r, insumo, semFicha) {
     lista.ok ? '' : lista.erro.titulo);
 }
 
+/** Estoque (entrada com custo médio, produção, ajuste) e caixa avulso. */
+function testarEstoqueCaixa_(r) {
+  const tz = Session.getScriptTimeZone();
+  const iso = dias => Utilities.formatDate(new Date(Date.now() + dias * 864e5), tz, 'yyyy-MM-dd');
+  const saldoDe = cod => lerTabela(ABA.MOVIMENTOS).filter(m => String(m.item) === cod).reduce((s, m) => s + (Number(m.quantidade) || 0), 0);
+  const custoInsumo = cod => Number(lerTabela(ABA.INSUMOS).find(x => x.codigo === cod).custoMedio);
+  const caixaCom = texto => lerTabela(ABA.CAIXA).filter(c => String(c.descricao).indexOf(texto) >= 0);
+
+  // Açúcar: 1.000 g a R$ 0,01.
+  const ac = salvarInsumo({ nome: MARCA_TESTE + ' Açúcar', unidade: 'g', custoMedio: '0,01', minimo: '0', saldoInicial: '1000' });
+  if (!ac.ok) { r.falha('Estoque: preparar insumo', ac.erro.titulo); return; }
+  const A = ac.dados.codigo;
+
+  r.erro('Entrada: valor zero recusado', registrarEntrada({ item: A, quantidade: '10', valorTotal: '0' }), 'DD-19');
+  r.erro('Entrada: quantidade zero recusada', registrarEntrada({ item: A, quantidade: '0', valorTotal: '5' }), 'DD-19');
+  r.erro('Entrada: lançar no caixa sem forma recusado', registrarEntrada({ item: A, quantidade: '10', valorTotal: '5', lancarNoCaixa: true, forma: '' }), 'DD-10');
+  r.erro('Entrada: item sem código recusado', registrarEntrada({ item: '', quantidade: '10', valorTotal: '5' }), 'DD-10');
+
+  const e1 = registrarEntrada({ item: A, quantidade: '1000', valorTotal: '30,00', lancarNoCaixa: true, forma: 'Pix', obs: MARCA_TESTE });
+  r.verdadeiro('Entrada: compra de insumo registrada', e1.ok, e1.erro && e1.erro.titulo);
+  r.perto('Entrada: saldo soma a compra (1.000 + 1.000)', saldoDe(A), 2000);
+  r.perto('Custo médio: (1.000 × 0,01 + 30) ÷ 2.000 = 0,02', custoInsumo(A), 0.02);
+  const saidaCompra = caixaCom('Compra de 1000 g de ' + MARCA_TESTE + ' Açúcar');
+  r.verdadeiro('Entrada: saída da compra lançada no caixa',
+    saidaCompra.length === 1 && saidaCompra[0].tipo === 'Saída' && Number(saidaCompra[0].valor) === 30 && saidaCompra[0].categoria === 'Compra de insumos');
+
+  const e2 = registrarEntrada({ item: A, quantidade: '500', valorTotal: '20', lancarNoCaixa: false });
+  r.perto('Custo médio: segunda compra com outro preço (2.000 × 0,02 + 20) ÷ 2.500 = 0,024', e2.ok && custoInsumo(A), 0.024);
+  r.igual('Entrada: sem marcar, não lança no caixa', caixaCom('Compra de 500 g de ' + MARCA_TESTE + ' Açúcar').length, 0);
+
+  // Saldo zerado: o custo novo é o da compra, sem média com o custo antigo.
+  const ca = salvarInsumo({ nome: MARCA_TESTE + ' Cacau', unidade: 'g', custoMedio: '100' });
+  registrarEntrada({ item: ca.dados.codigo, quantidade: '2', valorTotal: '10' });
+  r.perto('Custo médio: com saldo zerado vale o custo da compra (10 ÷ 2)', custoInsumo(ca.dados.codigo), 5);
+
+  // Ajuste.
+  r.erro('Ajuste: sem motivo recusado', registrarAjuste({ item: A, saldoReal: '2400', motivo: '' }), 'DD-10');
+  r.erro('Ajuste: quantidade negativa recusada', registrarAjuste({ item: A, saldoReal: '-1', motivo: 'Perda ou quebra' }), 'DD-19');
+  r.erro('Ajuste: sem quantidade recusado', registrarAjuste({ item: A, saldoReal: '', motivo: 'Perda ou quebra' }), 'DD-10');
+  r.erro('Ajuste: igual ao saldo recusado', registrarAjuste({ item: A, saldoReal: '2500', motivo: 'Contagem de estoque' }), 'DD-19');
+  const aj = registrarAjuste({ item: A, saldoReal: '2400', motivo: 'Perda ou quebra', detalhe: 'pacote rasgou' });
+  r.verdadeiro('Ajuste: grava só a diferença (−100)', aj.ok && aj.dados.diferenca === -100, aj.ok ? aj.dados.diferenca : aj.erro.titulo);
+  r.perto('Ajuste: saldo fica no contado', saldoDe(A), 2400);
+  r.perto('Ajuste: custo médio não muda', custoInsumo(A), 0.024);
+
+  // Produtos.
+  const enc = salvarProduto({ nome: MARCA_TESTE + ' Bolo sob medida', tipo: 'Encomenda', unidade: 'un', preco: '100' });
+  r.erro('Estoque: produto de encomenda não tem estoque', registrarEntrada({ item: enc.dados.codigo, quantidade: '1', valorTotal: '1' }), 'DD-19');
+
+  const pm = salvarProduto({ nome: MARCA_TESTE + ' Pão de mel', tipo: 'Pronta-entrega', unidade: 'un', preco: '6' });
+  const P = pm.dados.codigo;
+  salvarFicha(P, [{ insumo: A, quantidade: '50' }]);
+  const prod = registrarEntrada({ item: P, origem: 'producao', quantidade: '10' });
+  r.verdadeiro('Produção: registrada sem avisos', prod.ok && !prod.dados.confirmar, prod.ok ? 'pediu confirmação' : prod.erro.titulo);
+  r.perto('Produção: produto pronto entra no estoque', saldoDe(P), 10);
+  r.perto('Produção: insumos da ficha saem do estoque (2.400 − 500)', saldoDe(A), 1900);
+  r.verdadeiro('Produção: baixa registrada como "Saída por produção"',
+    lerTabela(ABA.MOVIMENTOS).some(m => m.item === A && m.tipo === 'Saída por produção' && Number(m.quantidade) === -500));
+  r.perto('Produção: custo por unidade vem da ficha (50 × 0,024)',
+    lerTabela(ABA.MOVIMENTOS).filter(m => m.item === P && m.tipo === 'Entrada').slice(-1)[0].custoUnit, 1.2);
+
+  const muito = registrarEntrada({ item: P, origem: 'producao', quantidade: '100' });
+  r.verdadeiro('Produção: insumo negativo pede confirmação (DD-14)',
+    muito.ok && muito.dados.confirmar && muito.dados.avisos.some(x => x.codigo === 'DD-14'));
+  r.perto('Produção: sem confirmar, nada muda', saldoDe(P), 10);
+
+  const bala = salvarProduto({ nome: MARCA_TESTE + ' Bala', tipo: 'Pronta-entrega', unidade: 'un', preco: '1' });
+  const semFicha = registrarEntrada({ item: bala.dados.codigo, origem: 'producao', quantidade: '5' });
+  r.verdadeiro('Produção: sem ficha pede confirmação (DD-13)',
+    semFicha.ok && semFicha.dados.confirmar && semFicha.dados.avisos.some(x => x.codigo === 'DD-13'));
+
+  const refri = salvarProduto({ nome: MARCA_TESTE + ' Refrigerante', tipo: 'Pronta-entrega', unidade: 'un', preco: '7' });
+  const R = refri.dados.codigo;
+  registrarEntrada({ item: R, origem: 'compra', quantidade: '12', valorTotal: '36', lancarNoCaixa: true, forma: 'Dinheiro' });
+  const linhaR = lerTabela(ABA.PRODUTOS).find(x => x.codigo === R);
+  r.perto('Revenda: custo de compra recalculado (36 ÷ 12)', linhaR.custoCompra, 3);
+  r.verdadeiro('Revenda: saída no caixa como compra de produtos',
+    caixaCom('de ' + MARCA_TESTE + ' Refrigerante').some(c => c.categoria === 'Compra de produtos' && Number(c.valor) === 36));
+  SpreadsheetApp.flush();
+  r.perto('Revenda: coluna Saldo de Produtos confere', lerTabela(ABA.PRODUTOS).find(x => x.codigo === R).saldo, 12);
+
+  // Caixa avulso.
+  const base = { tipo: 'Saída', categoria: 'Aluguel e contas', descricao: MARCA_TESTE + ' Conta de luz', valor: '120,50', forma: 'Pix', data: iso(0) };
+  r.erro('Caixa: categoria de pedido recusada no avulso', lancarNoCaixa(Object.assign({}, base, { categoria: 'Venda' })), 'DD-10');
+  r.erro('Caixa: categoria de entrada numa saída recusada', lancarNoCaixa(Object.assign({}, base, { categoria: 'Venda sem pedido' })), 'DD-10');
+  r.erro('Caixa: data futura recusada', lancarNoCaixa(Object.assign({}, base, { data: iso(2) })), 'DD-19');
+  r.erro('Caixa: valor zero recusado', lancarNoCaixa(Object.assign({}, base, { valor: '0' })), 'DD-19');
+  r.erro('Caixa: sem descrição recusado', lancarNoCaixa(Object.assign({}, base, { descricao: '' })), 'DD-10');
+
+  const antes = carregarCaixa('');
+  const l1 = lancarNoCaixa(base);
+  r.verdadeiro('Caixa: saída avulsa lançada', l1.ok, l1.erro && l1.erro.titulo);
+  const l2 = lancarNoCaixa(Object.assign({}, base, { tipo: 'Entrada', categoria: 'Venda sem pedido', descricao: MARCA_TESTE + ' Venda na feira', valor: '200' }));
+  const depois = carregarCaixa('');
+  r.perto('Caixa: resumo do mês soma a entrada', depois.dados.entradas - antes.dados.entradas, 200);
+  r.perto('Caixa: resumo do mês soma a saída', depois.dados.saidas - antes.dados.saidas, 120.5);
+  r.perto('Caixa: resultado = entradas − saídas', depois.dados.resultado, depois.dados.entradas - depois.dados.saidas);
+  r.igual('Caixa: lançamento mais recente aparece primeiro', l2.ok && depois.dados.lancamentos[0].descricao, MARCA_TESTE + ' Venda na feira');
+
+  const ontem = lancarNoCaixa(Object.assign({}, base, { descricao: MARCA_TESTE + ' Gás esquecido', data: iso(-1) }));
+  const linhaOntem = caixaCom(MARCA_TESTE + ' Gás esquecido')[0];
+  r.igual('Caixa: lançamento com data passada guarda o dia informado',
+    ontem.ok && linhaOntem && Utilities.formatDate(linhaOntem.data, tz, 'yyyy-MM-dd'), iso(-1));
+
+  const luz = depois.dados.lancamentos.find(x => x.descricao === MARCA_TESTE + ' Conta de luz');
+  r.erro('Caixa: excluir com a aba alterada recusado', excluirLancamento(luz.linha, 'outra'), 'DD-19');
+  const ex = excluirLancamento(luz.linha, luz.assinatura);
+  r.verdadeiro('Caixa: excluir lançamento avulso', ex.ok && caixaCom(MARCA_TESTE + ' Conta de luz').length === 0, ex.ok ? '' : ex.erro.titulo);
+
+  inserirLinha(ABA.CAIXA, { data: new Date(), tipo: 'Entrada', categoria: 'Venda', descricao: MARCA_TESTE + ' Sinal', valor: 10, forma: 'Pix', pedido: 'PED-9999' });
+  const doPedido = carregarCaixa('').dados.lancamentos.find(x => x.descricao === MARCA_TESTE + ' Sinal');
+  r.erro('Caixa: lançamento de pedido não se exclui por aqui', excluirLancamento(doPedido.linha, doPedido.assinatura), 'DD-19');
+
+  const frases = lerTabela(ABA.ATIVIDADES).map(a => String(a.oque));
+  r.verdadeiro('Atividades: compra mostra o custo médio antes e depois', frases.some(f => f.indexOf('R$ 0,0100 → R$ 0,0200') >= 0),
+    frases.filter(f => f.indexOf('Compra registrada') === 0).slice(-1)[0]);
+  r.verdadeiro('Atividades: ajuste com motivo', frases.some(f => f.indexOf('ajustado de 2500 para 2400') >= 0 && f.indexOf('Perda ou quebra') >= 0));
+}
+
 function testarAtividades_(r) {
   const frases = lerTabela(ABA.ATIVIDADES).map(a => String(a.oque));
   r.verdadeiro('Atividades: cadastro de cliente registrado', frases.some(f => f.indexOf('Cliente cadastrado') === 0));
   r.verdadeiro('Atividades: custo por grama com 4 casas', frases.some(f => f.indexOf('R$ 0,0065 por g') >= 0));
   r.verdadeiro('Atividades: nenhuma frase com JSON ou código técnico',
-    !frases.some(f => /[{}\[\]]|undefined|null|Error/.test(f.replace(MARCA_TESTE, ''))));
+    !frases.some(f => /[{}\[\]]|undefined|null|Error/.test(f.split(MARCA_TESTE).join(''))));
   const quem = lerTabela(ABA.ATIVIDADES).slice(-1)[0];
   r.verdadeiro('Atividades: registra quem fez', quem && String(quem.quem).length > 0);
 }

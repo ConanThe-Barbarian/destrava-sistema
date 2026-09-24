@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <?!= incluir('Estilo') ?>
+  <style>
+    .situacao { display: flex; gap: 16px; flex-wrap: wrap; background: var(--fundo-2); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; font-size: 13px; }
+    .situacao b { font-weight: 700; }
+    .situacao .negativo { color: var(--erro); }
+    .opcoes { display: flex; gap: 8px; flex-wrap: wrap; }
+    .opcoes label { display: flex; align-items: center; gap: 6px; border: 1px solid var(--linha); border-radius: 8px; padding: 8px 12px; cursor: pointer; font-weight: 500; }
+    .opcoes input { accent-color: var(--cor); }
+    .opcoes label:has(input:checked) { border-color: var(--cor); background: var(--cor-suave); }
+    .previa { font-size: 13px; color: var(--texto-2); margin: -4px 0 12px; min-height: 20px; }
+    .previa b { color: var(--texto); }
+    .marcar { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 10px; cursor: pointer; }
+    .marcar input { width: 16px; height: 16px; accent-color: var(--cor); }
+  </style>
+</head>
+<body>
+  <div class="topo" id="topo"></div>
+
+  <form class="conteudo" id="form" autocomplete="off" hidden>
+    <div class="campo">
+      <label for="item">Item</label>
+      <select id="item" name="item"></select>
+    </div>
+    <div class="situacao" id="situacao"></div>
+
+    <!-- Entrada -->
+    <div id="blocoEntrada" hidden>
+      <div class="campo" id="campoOrigem" hidden>
+        <label>Como este produto chegou?</label>
+        <div class="opcoes">
+          <label><input type="radio" name="origem" value="producao"> Produzi aqui</label>
+          <label><input type="radio" name="origem" value="compra"> Comprei pronto</label>
+        </div>
+        <small id="dicaOrigem"></small>
+      </div>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="quantidade">Quantidade que entrou</label>
+          <div class="com-sufixo"><input id="quantidade" name="quantidade" inputmode="decimal"><span data-un></span></div>
+        </div>
+        <div class="campo" id="campoValor">
+          <label for="valorTotal">Valor pago pela compra inteira</label>
+          <input id="valorTotal" name="valorTotal" inputmode="decimal" placeholder="R$">
+        </div>
+      </div>
+      <div class="previa" id="previaEntrada"></div>
+      <div id="blocoCaixa">
+        <label class="marcar"><input type="checkbox" id="lancarNoCaixa" checked> Lançar a saída no caixa</label>
+        <div class="campo" id="campoForma">
+          <label for="forma">Forma de pagamento</label>
+          <select id="forma" name="forma"></select>
+        </div>
+      </div>
+      <div class="campo">
+        <label for="obs">Observação <small>(opcional)</small></label>
+        <input id="obs" name="obs" maxlength="200" placeholder="Ex.: fornecedor, nota fiscal">
+      </div>
+    </div>
+
+    <!-- Ajuste -->
+    <div id="blocoAjuste" hidden>
+      <div class="campo">
+        <label for="saldoReal">Quantidade que tem hoje</label>
+        <div class="com-sufixo"><input id="saldoReal" name="saldoReal" inputmode="decimal"><span data-un></span></div>
+        <small>Conte o que existe de verdade e digite aqui. O sistema grava só a diferença.</small>
+      </div>
+      <div class="previa" id="previaAjuste"></div>
+      <div class="campo">
+        <label for="motivo">Motivo</label>
+        <select id="motivo" name="motivo"></select>
+      </div>
+      <div class="campo">
+        <label for="detalhe">Detalhe <small>(opcional)</small></label>
+        <input id="detalhe" name="detalhe" maxlength="150" placeholder="Ex.: pacote rasgou na entrega">
+      </div>
+    </div>
+  </form>
+
+  <div class="carregando" id="carregando">Carregando…</div>
+  <div class="vazio" id="semItens" hidden>
+    Nenhum item com estoque ainda. Cadastre insumos ou produtos de pronta-entrega em Destrava › Cadastrar.
+  </div>
+
+  <div class="acoes">
+    <button class="btn btn-secundario" data-action="fechar">Fechar</button>
+    <button class="btn btn-principal" data-action="salvar" id="btnSalvar" disabled></button>
+  </div>
+  <div class="rodape" id="rodape"></div>
+
+  <script>const MARCA = <?!= marcaJson ?>; const PARAMS = <?!= parametrosJson ?>;</script>
+  <?!= incluir('Base') ?>
+  <script>
+    var ENTRADA = PARAMS.modo !== 'ajuste';
+    var DADOS = null;
+    var alterado = false;
+    var form = document.getElementById('form');
+    var el = function (id) { return document.getElementById(id); };
+    var TEXTO_BOTAO = ENTRADA ? 'Registrar entrada' : 'Ajustar estoque';
+    el('btnSalvar').textContent = TEXTO_BOTAO;
+
+    function numeroBR(v) {
+      var s = String(v || '').replace(/[R$\s]/g, '');
+      if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+      var n = Number(s);
+      return s === '' || !isFinite(n) ? null : n;
+    }
+    function qtd(n) { return (Math.round(n * 1000) / 1000).toLocaleString('pt-BR'); }
+    function reais(n, unitario) {
+      var casas = unitario && Math.abs(n) < 1 ? 4 : 2;
+      return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
+    }
+    function itens() { return DADOS.insumos.concat(DADOS.produtos); }
+    function itemAtual() { var c = el('item').value; return itens().filter(function (i) { return i.codigo === c; })[0]; }
+    function origem() { var r = form.querySelector('[name="origem"]:checked'); return r ? r.value : 'compra'; }
+
+    function montarSelect() {
+      var grupo = function (rotulo, lista) {
+        if (!lista.length) return '';
+        return '<optgroup label="' + rotulo + '">' + lista.map(function (i) {
+          return '<option value="' + escapar(i.codigo) + '">' + escapar(i.nome) + '</option>';
+        }).join('') + '</optgroup>';
+      };
+      var atual = el('item').value;
+      el('item').innerHTML = grupo('Insumos', DADOS.insumos) + grupo('Produtos de pronta-entrega', DADOS.produtos);
+      if (atual && itemAtual() === undefined) atual = '';
+      if (atual) el('item').value = atual;
+    }
+
+    function mostrarItem() {
+      var i = itemAtual();
+      document.querySelectorAll('[data-un]').forEach(function (s) { s.textContent = i.unidade; });
+      el('situacao').innerHTML = '<span>Tem hoje: <b class="' + (i.saldo < 0 ? 'negativo' : '') + '">' + qtd(i.saldo) + ' ' + escapar(i.unidade) + '</b></span>'
+        + '<span>' + (i.tipo === 'insumo' ? 'Custo médio' : 'Custo por unidade') + ': <b>' + reais(i.custo, true) + '</b> por ' + escapar(i.unidade) + '</span>';
+      if (ENTRADA) {
+        el('campoOrigem').hidden = i.tipo !== 'produto';
+        if (i.tipo === 'produto') {
+          form.querySelector('[name="origem"][value="' + (i.temFicha ? 'producao' : 'compra') + '"]').checked = true;
+        }
+        mostrarOrigem();
+      }
+      atualizarPrevia();
+    }
+
+    function mostrarOrigem() {
+      var i = itemAtual();
+      var producao = i.tipo === 'produto' && origem() === 'producao';
+      el('campoValor').hidden = producao;
+      el('blocoCaixa').hidden = producao;
+      el('dicaOrigem').textContent = producao
+        ? (i.temFicha ? 'Os insumos da ficha técnica saem do estoque. Não mexe no caixa.' : 'Este produto não tem ficha técnica: nenhum insumo será baixado.')
+        : 'Revenda: informe quanto pagou. O custo de compra do produto é recalculado pela média.';
+      atualizarPrevia();
+    }
+
+    function atualizarPrevia() {
+      var i = itemAtual();
+      if (ENTRADA) {
+        var q = numeroBR(el('quantidade').value), v = numeroBR(el('valorTotal').value);
+        var producao = i.tipo === 'produto' && origem() === 'producao';
+        if (producao || !q || q <= 0 || !v || v <= 0) { el('previaEntrada').innerHTML = ''; return; }
+        var base = i.tipo === 'insumo' ? i.custo : i.custoCompra;
+        var novo = i.saldo <= 0 ? v / q : (i.saldo * base + v) / (i.saldo + q);
+        el('previaEntrada').innerHTML = 'Esta compra sai a <b>' + reais(v / q, true) + '</b> por ' + escapar(i.unidade)
+          + '. ' + (i.tipo === 'insumo' ? 'Custo médio' : 'Custo de compra') + ' passa a <b>' + reais(novo, true) + '</b>.';
+      } else {
+        var real = numeroBR(el('saldoReal').value);
+        if (real === null || real < 0) { el('previaAjuste').innerHTML = ''; return; }
+        var dif = Math.round((real - i.saldo) * 1000) / 1000;
+        el('previaAjuste').innerHTML = dif === 0 ? 'Igual ao saldo do sistema: nada a ajustar.'
+          : 'Diferença: <b>' + (dif > 0 ? '+' : '') + qtd(dif) + ' ' + escapar(i.unidade) + '</b>' + (dif < 0 ? ' (sai do estoque)' : ' (entra no estoque)') + '.';
+      }
+    }
+
+    function limpar() {
+      ['quantidade', 'valorTotal', 'obs', 'saldoReal', 'detalhe'].forEach(function (id) { el(id).value = ''; });
+      marcarErros(form, []);
+      alterado = false;
+    }
+
+    form.addEventListener('submit', function (e) { e.preventDefault(); });
+    form.addEventListener('input', function () { alterado = true; atualizarPrevia(); });
+    form.addEventListener('change', function (e) {
+      alterado = true;
+      if (e.target.id === 'item') mostrarItem();
+      else if (e.target.name === 'origem') mostrarOrigem();
+      else if (e.target.id === 'lancarNoCaixa') el('campoForma').hidden = !el('lancarNoCaixa').checked;
+    });
+
+    function recarregar(codigo) {
+      return chamar('carregarDadosEstoque').then(function (d) {
+        DADOS = d;
+        montarSelect();
+        if (codigo) el('item').value = codigo;
+        mostrarItem();
+      });
+    }
+
+    function enviar(dados) {
+      var btn = el('btnSalvar');
+      btn.disabled = true; btn.textContent = 'Salvando…';
+      var funcao = ENTRADA ? 'registrarEntrada' : 'registrarAjuste';
+      return chamar(funcao, dados)
+        .then(function (r) {
+          if (r.confirmar) {
+            return abrirSobre(r.avisos.map(function (a) { return a.titulo; }).join(' '), r.avisos.map(function (a) { return a.acao; }).join(' '),
+              r.avisos.map(function (a) { return a.codigo; }).join(', '),
+              [{ texto: 'Voltar', valor: false }, { texto: 'Continuar assim mesmo', classe: 'btn-principal', valor: true }])
+              .then(function (ok) { if (ok) { dados.confirmado = true; return enviar(dados); } });
+          }
+          var codigo = dados.item;
+          limpar();
+          avisoRapido(ENTRADA ? 'Entrada registrada' : 'Estoque ajustado');
+          return recarregar(codigo);
+        })
+        .catch(function (e) {
+          var mapa = { 'quantidade que tem hoje': 'saldoReal', 'quantidade': 'quantidade', 'valor pago': 'valorTotal', 'forma de pagamento': 'forma', 'motivo': 'motivo' };
+          var campo = Object.keys(mapa).filter(function (k) { return (e.titulo || '').toLowerCase().indexOf(k) >= 0; })[0];
+          marcarErros(form, campo ? [mapa[campo]] : []);
+          return mostrarErro(e);
+        })
+        .then(function () { btn.disabled = false; btn.textContent = TEXTO_BOTAO; });
+    }
+
+    ACOES.salvar = function () {
+      var i = itemAtual();
+      if (ENTRADA) {
+        enviar({
+          item: i.codigo, origem: i.tipo === 'produto' ? origem() : 'compra',
+          quantidade: el('quantidade').value, valorTotal: el('valorTotal').value,
+          lancarNoCaixa: el('lancarNoCaixa').checked, forma: el('forma').value, obs: el('obs').value
+        });
+        return;
+      }
+      var real = numeroBR(el('saldoReal').value);
+      var dados = { item: i.codigo, saldoReal: el('saldoReal').value, motivo: el('motivo').value, detalhe: el('detalhe').value };
+      if (real === null || real < 0 || !dados.motivo) { enviar(dados); return; } // o servidor explica o que falta
+      confirmar('Ajustar ' + i.nome + '?', 'O saldo passa de ' + qtd(i.saldo) + ' para ' + qtd(real) + ' ' + i.unidade + '. Motivo: ' + dados.motivo + '.', 'Ajustar')
+        .then(function (ok) { if (ok) enviar(dados); });
+    };
+
+    ACOES.fechar = function () {
+      if (!alterado) { fecharJanela(); return; }
+      confirmar('Fechar sem salvar?', 'O que foi preenchido nesta janela será perdido.', 'Fechar sem salvar', true)
+        .then(function (ok) { if (ok) fecharJanela(); });
+    };
+
+    chamar('carregarDadosEstoque')
+      .then(function (d) {
+        DADOS = d;
+        el('carregando').hidden = true;
+        if (!itens().length) { el('semItens').hidden = false; return; }
+        el('forma').innerHTML = d.formas.map(function (f) { return '<option>' + escapar(f) + '</option>'; }).join('');
+        el('motivo').innerHTML = '<option value="">Escolha…</option>' + d.motivos.map(function (m) { return '<option>' + escapar(m) + '</option>'; }).join('');
+        el(ENTRADA ? 'blocoEntrada' : 'blocoAjuste').hidden = false;
+        form.hidden = false;
+        el('btnSalvar').disabled = false;
+        montarSelect();
+        mostrarItem();
+      })
+      .catch(function (e) { el('carregando').hidden = true; mostrarErro(e); });
+  </script>
+</body>
+</html>

@@ -37,7 +37,11 @@ const LISTA = {
   UNIDADE: ['un', 'g', 'kg', 'ml', 'L', 'm'],
   TIPO_CAIXA: ['Entrada', 'Saída'],
   FORMA_PAGAMENTO: ['Pix', 'Dinheiro', 'Cartão de crédito', 'Cartão de débito', 'Transferência', 'Outro'],
-  TIPO_MOVIMENTO: ['Entrada', 'Saída por pedido', 'Estorno', 'Ajuste']
+  TIPO_MOVIMENTO: ['Entrada', 'Saída por pedido', 'Saída por produção', 'Estorno', 'Ajuste'],
+  // Categorias oferecidas no lançamento avulso. "Venda" e "Devolução" são só dos pedidos.
+  CATEGORIA_ENTRADA: ['Venda sem pedido', 'Dinheiro colocado pelo dono', 'Outra entrada'],
+  CATEGORIA_SAIDA: ['Compra de insumos', 'Compra de produtos', 'Embalagens', 'Aluguel e contas', 'Entrega e transporte',
+    'Taxas e impostos', 'Retirada do dono', 'Outra saída']
 };
 
 const FMT = {
