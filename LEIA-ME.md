@@ -2,6 +2,16 @@
 
 Código Apps Script da planilha modelo. A pasta `src/` é a fonte da verdade: o editor do Apps Script é só onde o código roda.
 
+## Teste automático
+
+No editor do Apps Script, escolha a função **`testarSistema`** e clique em **Executar**. Em cerca de 1 minuto aparece uma janela na planilha com o relatório (✅ ou ❌ em cada verificação). O mesmo texto fica no Registro de execução.
+
+- Confere estrutura, fórmulas, configurações, cadastros, ficha técnica, cálculo de preço, pedidos (ciclo, pagamento, baixa e estorno de estoque, cancelamento) e atividades.
+- Usa a própria planilha com dados marcados `[TESTE]` e, no fim, apaga tudo e devolve configurações, contadores e nome do arquivo como estavam.
+- Não use a planilha enquanto ele roda.
+- Rode depois de cada `clasp push`. Cada bloco novo acrescenta os testes dele.
+- `Testes.gs` **sai do modelo de venda**.
+
 ## Bloco 1 — fundação
 
 | Arquivo | O que faz |
@@ -71,10 +81,34 @@ Regra de uso: **criar** cadastros sempre pelo menu (é ele que gera o código). 
 - [ ] Remover todas as linhas e salvar pede confirmação e apaga a ficha
 - [ ] Atividades mostra as frases de cada cadastro e ficha, com custo por grama em 4 casas (R$ 0,0065)
 
+## Bloco 3 — pedidos, itens e pagamentos
+
+| Arquivo | O que faz |
+| --- | --- |
+| `Pedidos.gs` | Criar e alterar pedido, ciclo de status, pagamento, cancelamento, baixa e estorno de estoque |
+| `JanelaPedido.html` | Destrava › Novo pedido (e "Alterar itens" de um orçamento) |
+| `JanelaPedidos.html` | Destrava › Pedidos: lista com busca e filtro, detalhe, avançar status, pagamento e cancelamento |
+
+Regras: um passo de status por vez (Orçamento → Confirmado → Em produção → Pronto → Entregue); pedido só de pronta-entrega pode ir de Confirmado direto para Entregue. Itens só mudam no orçamento (DD-22). Em produção baixa os insumos da ficha; Entregue baixa os produtos prontos; Cancelado estorna tudo e pode devolver dinheiro (DD-23 se passar do pago). Estoque negativo e produto sem ficha pedem confirmação, não bloqueiam.
+
+### Roteiro de teste do bloco 3
+
+- [ ] Novo pedido com cliente da lista, 2 tortas de R$ 80, desconto 10, confirmado com sinal de 50 no Pix: Pedidos mostra total 150, pago 50, saldo 100; Caixa ganha a entrada do sinal
+- [ ] "Cliente novo" no pedido cadastra o cliente em Clientes com código
+- [ ] Sem itens mostra a DD-10; sinal acima do total, a DD-15; entrega no passado pede confirmação
+- [ ] Em Pedidos, avançar para Em produção baixa os insumos da ficha (confira em Insumos)
+- [ ] Quantidade que deixa insumo negativo pede confirmação e, confirmando, a Situação vira "Repor"
+- [ ] Registrar pagamento maior que o saldo mostra a DD-15; o valor exato quita o pedido
+- [ ] Entregar com saldo em aberto avisa quanto falta receber
+- [ ] Cancelar pedido em produção devolve os insumos; devolução maior que o pago mostra a DD-23
+- [ ] Pedido só de pronta-entrega oferece Entregue direto e baixa o estoque do produto
+- [ ] "Alterar itens" só aparece em orçamento
+- [ ] Pedido com entrega vencida aparece marcado como atrasado na lista
+- [ ] Atividades conta cada passo em frase legível
+
 ## Próximos blocos
 
-3. Pedidos, itens e pagamentos
-4. Estoque (entrada, ajuste, baixa e estorno) e caixa
+4. Estoque (entrada com custo médio e ajuste) e caixa avulso
 5. Painel
 6. Licença real (depois da API)
 

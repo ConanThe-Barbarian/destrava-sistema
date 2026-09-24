@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <?!= incluir('Estilo') ?>
+  <style>
+    [hidden] { display: none !important; }
+    .filtros { display: flex; gap: 8px; margin-bottom: 10px; }
+    .filtros input { flex: 1; font: inherit; padding: 8px 10px; border: 1px solid var(--linha); border-radius: 8px; }
+    .filtros select { font: inherit; padding: 8px; border: 1px solid var(--linha); border-radius: 8px; }
+    .cartao { border: 1px solid var(--linha); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
+    .cartao:hover { border-color: var(--cor); }
+    .cartao .l1 { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+    .cartao .l2 { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--texto-2); margin-top: 2px; }
+    .selo { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px; background: var(--fundo-2); white-space: nowrap; }
+    .selo.Confirmado { background: #e8e4ff; color: #4b3fb5; }
+    .selo.Em.produção, .selo[data-s="Em produção"] { background: #fff1dd; color: #9a5a00; }
+    .selo[data-s="Pronto"] { background: #dff5ee; color: #11795a; }
+    .selo[data-s="Entregue"] { background: #e6f0e9; color: #2d6a41; }
+    .selo[data-s="Cancelado"] { background: #fde6ea; color: #a8243f; }
+    .atrasado { color: var(--erro); font-weight: 600; }
+    .voltar { background: none; border: 0; color: var(--cor); font: inherit; font-weight: 600; cursor: pointer; padding: 0; margin-bottom: 8px; }
+    .cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .cab h3 { font-size: 17px; }
+    .grade { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+    .grade div { background: var(--fundo-2); border-radius: 8px; padding: 8px 10px; }
+    .grade span { display: block; font-size: 12px; color: var(--texto-2); }
+    .grade b { font-size: 15px; }
+    table.simples { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.simples td, table.simples th { padding: 6px 4px; border-bottom: 1px solid var(--linha); text-align: left; }
+    table.simples th { font-size: 12px; color: var(--texto-2); font-weight: 600; }
+    table.simples .n { text-align: right; white-space: nowrap; }
+    .painel { border: 1px solid var(--linha); border-radius: 10px; padding: 12px; margin-top: 12px; }
+    .botoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="topo" id="topo"></div>
+
+  <div class="conteudo">
+    <!-- LISTA -->
+    <div id="vistaLista">
+      <div class="filtros">
+        <input id="busca" placeholder="Buscar por código ou cliente">
+        <select id="filtro">
+          <option value="abertos">Em aberto</option>
+          <option value="receber">Com valor a receber</option>
+          <option value="todos">Todos</option>
+        </select>
+      </div>
+      <div id="lista"><div class="carregando">Carregando…</div></div>
+    </div>
+
+    <!-- DETALHE -->
+    <div id="vistaDetalhe" hidden>
+      <button class="voltar" data-action="voltar">‹ Voltar para a lista</button>
+      <div id="detalhe"></div>
+    </div>
+  </div>
+
+  <div class="acoes">
+    <button class="btn btn-secundario" data-action="fechar">Fechar</button>
+    <button class="btn btn-principal" data-action="novo">Novo pedido</button>
+  </div>
+  <div class="rodape" id="rodape"></div>
+
+  <script>const MARCA = <?!= marcaJson ?>; const PARAMS = <?!= parametrosJson ?>;</script>
+  <?!= incluir('Base') ?>
+  <script>
+    var PEDIDOS = [];
+    var FORMAS = ['Pix', 'Dinheiro', 'Cartão de crédito', 'Cartão de débito', 'Transferência', 'Outro'];
+    var atual = null;
+    var ROTULO_ACAO = { 'Confirmado': 'Confirmar pedido', 'Em produção': 'Iniciar produção', 'Pronto': 'Marcar como pronto', 'Entregue': 'Marcar como entregue' };
+
+    function reais(n) { return 'R$ ' + (n || 0).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+    function br(n) { return String(n).replace('.', ','); }
+    function selo(s) { return '<span class="selo" data-s="' + escapar(s) + '">' + escapar(s) + '</span>'; }
+    function opcoesFormas() { return FORMAS.map(function (f) { return '<option>' + f + '</option>'; }).join(''); }
+
+    // ---------- lista ----------
+    function desenharLista() {
+      var termo = document.getElementById('busca').value.trim().toLowerCase();
+      var filtro = document.getElementById('filtro').value;
+      var itens = PEDIDOS.filter(function (p) {
+        if (filtro === 'abertos' && (p.status === 'Entregue' || p.status === 'Cancelado')) return false;
+        if (filtro === 'receber' && !(p.saldo > 0)) return false;
+        return !termo || p.codigo.toLowerCase().indexOf(termo) >= 0 || p.cliente.toLowerCase().indexOf(termo) >= 0;
+      });
+      var el = document.getElementById('lista');
+      if (!itens.length) {
+        el.innerHTML = '<div class="vazio">' + (PEDIDOS.length ? 'Nenhum pedido neste filtro.' : 'Nenhum pedido ainda. Clique em "Novo pedido".') + '</div>';
+        return;
+      }
+      el.innerHTML = itens.map(function (p) {
+        return '<div class="cartao" data-action="abrir" data-codigo="' + escapar(p.codigo) + '">'
+          + '<div class="l1"><span>' + escapar(p.codigo) + ' · ' + escapar(p.cliente) + '</span>' + selo(p.status) + '</div>'
+          + '<div class="l2"><span class="' + (p.atrasado ? 'atrasado' : '') + '">' + (p.entrega ? (p.atrasado ? 'Atrasado · entrega ' : 'Entrega ') + escapar(p.entrega) : 'Sem data de entrega') + '</span>'
+          + '<span>' + reais(p.total) + (p.saldo > 0 ? ' · falta ' + reais(p.saldo) : '') + '</span></div></div>';
+      }).join('');
+    }
+
+    function carregar(manterCodigo) {
+      return chamar('listarPedidos').then(function (r) {
+        PEDIDOS = r;
+        desenharLista();
+        if (manterCodigo) abrir(manterCodigo);
+      }).catch(mostrarErro);
+    }
+
+    // ---------- detalhe ----------
+    function abrir(codigo) {
+      atual = PEDIDOS.filter(function (p) { return p.codigo === codigo; })[0];
+      if (!atual) return;
+      var p = atual;
+      var html = '<div class="cab"><h3>' + escapar(p.codigo) + ' · ' + escapar(p.cliente) + '</h3>' + selo(p.status) + '</div>'
+        + '<div style="font-size:12px;color:var(--texto-2)">Feito em ' + escapar(p.data) + (p.entrega ? ' · entrega ' + escapar(p.entrega) : '')
+        + (p.atrasado ? ' · <span class="atrasado">atrasado</span>' : '') + '</div>'
+        + '<div class="grade"><div><span>Total</span><b>' + reais(p.total) + '</b></div>'
+        + '<div><span>Pago</span><b>' + reais(p.pago) + '</b></div>'
+        + '<div><span>' + (p.status === 'Cancelado' ? 'Saldo' : 'Falta receber') + '</span><b>' + reais(p.saldo) + '</b></div></div>'
+        + '<table class="simples"><tr><th>Item</th><th class="n">Qtd.</th><th class="n">Preço</th><th class="n">Subtotal</th></tr>'
+        + p.itens.map(function (i) {
+          return '<tr><td>' + escapar(i.produto) + '</td><td class="n">' + br(i.quantidade) + '</td><td class="n">' + reais(i.preco) + '</td><td class="n">' + reais(i.quantidade * i.preco) + '</td></tr>';
+        }).join('')
+        + (p.desconto ? '<tr><td colspan="3">Desconto</td><td class="n">− ' + reais(p.desconto) + '</td></tr>' : '')
+        + '</table>'
+        + (p.obs ? '<p style="margin-top:8px;font-size:13px"><b>Observações:</b> ' + escapar(p.obs) + '</p>' : '');
+
+      if (p.pagamentos.length) {
+        html += '<h2>Pagamentos</h2><table class="simples">' + p.pagamentos.map(function (c) {
+          return '<tr><td>' + escapar(c.data) + '</td><td>' + escapar(c.tipo === 'Entrada' ? c.forma : 'Devolução (' + c.forma + ')') + '</td><td class="n">'
+            + (c.tipo === 'Entrada' ? '' : '− ') + reais(c.valor) + '</td></tr>';
+        }).join('') + '</table>';
+      }
+
+      // Ações possíveis a partir do status atual.
+      var botoes = p.proximos.filter(function (s) { return s !== 'Cancelado'; }).map(function (s) {
+        return '<button class="btn btn-principal" data-action="status" data-status="' + escapar(s) + '">' + escapar(ROTULO_ACAO[s] || s) + '</button>';
+      });
+      if (p.saldo > 0) botoes.push('<button class="btn btn-secundario" data-action="mostrarPagamento">Registrar pagamento</button>');
+      if (p.status === 'Orçamento') botoes.push('<button class="btn btn-secundario" data-action="editar">Alterar itens</button>');
+      if (p.proximos.indexOf('Cancelado') >= 0) botoes.push('<button class="btn btn-secundario" data-action="mostrarCancelar" style="color:var(--erro)">Cancelar pedido</button>');
+      if (botoes.length) html += '<div class="botoes">' + botoes.join('') + '</div>';
+
+      html += '<div class="painel" id="painelPagamento" hidden><b>Registrar pagamento</b>'
+        + '<div class="linha-2" style="margin-top:8px"><div class="campo"><label>Valor (R$)</label><input id="pgValor" inputmode="decimal" value="' + escapar(br(p.saldo.toFixed(2))) + '"></div>'
+        + '<div class="campo"><label>Forma</label><select id="pgForma">' + opcoesFormas() + '</select></div></div>'
+        + '<div class="acoes" style="padding-top:0"><button class="btn btn-principal" data-action="pagar">Registrar</button></div></div>';
+
+      html += '<div class="painel" id="painelCancelar" hidden><b>Cancelar pedido</b>'
+        + '<p style="font-size:13px;color:var(--texto-2);margin:6px 0">Tudo que foi baixado do estoque por este pedido volta para o estoque.</p>'
+        + (p.pago > 0 ? '<div class="linha-2"><div class="campo"><label>Devolver ao cliente (R$)</label><input id="devValor" inputmode="decimal" placeholder="0,00 se não houve devolução"><small>Pago até agora: ' + reais(p.pago) + '</small></div>'
+          + '<div class="campo"><label>Forma da devolução</label><select id="devForma">' + opcoesFormas() + '</select></div></div>' : '')
+        + '<div class="acoes" style="padding-top:0"><button class="btn btn-perigo" data-action="cancelar">Cancelar pedido</button></div></div>';
+
+      document.getElementById('detalhe').innerHTML = html;
+      document.getElementById('vistaLista').hidden = true;
+      document.getElementById('vistaDetalhe').hidden = false;
+    }
+
+    function ocupado(el, texto) { el.disabled = true; el.dataset.texto = el.textContent; el.textContent = texto; }
+    function livre(el) { el.disabled = false; if (el.dataset.texto) el.textContent = el.dataset.texto; }
+
+    function executarStatus(novo, opcoes, botao) {
+      ocupado(botao, 'Salvando…');
+      return chamar('mudarStatus', atual.codigo, novo, opcoes)
+        .then(function (r) {
+          if (r.confirmar) {
+            livre(botao);
+            return abrirSobre(r.avisos.map(function (a) { return a.titulo; }).join(' '), r.avisos.map(function (a) { return a.acao; }).join(' '),
+              r.avisos.map(function (a) { return a.codigo; }).join(', '),
+              [{ texto: 'Voltar', valor: false }, { texto: 'Continuar assim mesmo', classe: 'btn-principal', valor: true }])
+              .then(function (ok) { if (ok) { opcoes.confirmado = true; executarStatus(novo, opcoes, botao); } });
+          }
+          avisoRapido(novo === 'Cancelado' ? 'Pedido cancelado' : 'Pedido: ' + novo.toLowerCase());
+          if (novo === 'Entregue' && r.saldo > 0) {
+            abrirSobre('Pedido entregue com valor a receber', 'Ainda falta receber ' + reais(r.saldo) + ' deste pedido. Ele continua no filtro "Com valor a receber".', '',
+              [{ texto: 'Entendi', classe: 'btn-principal', valor: true }]);
+          }
+          return carregar(atual.codigo);
+        })
+        .catch(function (e) { livre(botao); mostrarErro(e); });
+    }
+
+    ACOES.abrir = function (el) { abrir(el.getAttribute('data-codigo')); };
+    ACOES.voltar = function () {
+      document.getElementById('vistaDetalhe').hidden = true;
+      document.getElementById('vistaLista').hidden = false;
+      desenharLista();
+    };
+    ACOES.status = function (el) {
+      var novo = el.getAttribute('data-status');
+      confirmar(ROTULO_ACAO[novo] + '?', 'O pedido ' + atual.codigo + ' passa de "' + atual.status + '" para "' + novo + '".'
+        + (novo === 'Em produção' ? ' Os insumos da ficha técnica são baixados do estoque.' : '')
+        + (novo === 'Entregue' ? ' Itens de pronta-entrega são baixados do estoque.' : ''), 'Confirmar')
+        .then(function (ok) { if (ok) executarStatus(novo, {}, el); });
+    };
+    ACOES.mostrarPagamento = function () {
+      document.getElementById('painelCancelar').hidden = true;
+      var p = document.getElementById('painelPagamento'); p.hidden = !p.hidden;
+      if (!p.hidden) document.getElementById('pgValor').focus();
+    };
+    ACOES.pagar = function (el) {
+      ocupado(el, 'Registrando…');
+      chamar('registrarPagamento', atual.codigo, { valor: document.getElementById('pgValor').value, forma: document.getElementById('pgForma').value })
+        .then(function (r) {
+          avisoRapido(r.saldo > 0 ? 'Pagamento registrado' : 'Pedido quitado');
+          return carregar(atual.codigo);
+        })
+        .catch(function (e) { livre(el); mostrarErro(e); });
+    };
+    ACOES.mostrarCancelar = function () {
+      document.getElementById('painelPagamento').hidden = true;
+      var p = document.getElementById('painelCancelar'); p.hidden = !p.hidden;
+    };
+    ACOES.cancelar = function (el) {
+      var dev = document.getElementById('devValor');
+      var opcoes = { devolucaoValor: dev ? dev.value : '', devolucaoForma: dev ? document.getElementById('devForma').value : '' };
+      confirmar('Cancelar o pedido ' + atual.codigo + '?', 'Esta ação não pode ser desfeita.', 'Cancelar pedido', true)
+        .then(function (ok) { if (ok) executarStatus('Cancelado', opcoes, el); });
+    };
+    ACOES.editar = function (el) { ocupado(el, 'Abrindo…'); google.script.run.abrirEditarPedido(atual.codigo); };
+    ACOES.novo = function (el) { ocupado(el, 'Abrindo…'); google.script.run.abrirNovoPedido(); };
+
+    document.getElementById('busca').addEventListener('input', desenharLista);
+    document.getElementById('filtro').addEventListener('change', desenharLista);
+    carregar();
+  </script>
+</body>
+</html>

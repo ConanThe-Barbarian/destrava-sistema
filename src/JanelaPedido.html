@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <?!= incluir('Estilo') ?>
+  <style>
+    .tabela { width: 100%; border-collapse: collapse; }
+    .tabela th { text-align: left; font-size: 12px; color: var(--texto-2); font-weight: 600; padding: 6px 4px; border-bottom: 1px solid var(--linha); }
+    .tabela td { padding: 6px 4px; border-bottom: 1px solid var(--linha); vertical-align: middle; }
+    .tabela select, .tabela input { font: inherit; padding: 7px 8px; border: 1px solid var(--linha); border-radius: 8px; width: 100%; background: #fff; }
+    .tabela .qtd { width: 80px; } .tabela .preco { width: 110px; } .tabela .sub { width: 100px; text-align: right; white-space: nowrap; }
+    .tabela .remover { width: 32px; text-align: center; }
+    .remover button { border: 0; background: none; cursor: pointer; color: var(--texto-2); font-size: 18px; }
+    .remover button:hover { color: var(--erro); }
+    .totais { margin-top: 10px; display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; justify-items: end; }
+    .totais .rotulo { justify-self: end; color: var(--texto-2); }
+    .totais .grande { font-size: 16px; font-weight: 700; }
+    .opcoes { display: flex; gap: 8px; }
+    .opcoes label { flex: 1; border: 1px solid var(--linha); border-radius: 8px; padding: 10px; cursor: pointer; font-weight: 400; }
+    .opcoes label strong { display: block; }
+    .opcoes label small { color: var(--texto-2); }
+    .opcoes input { margin-right: 6px; }
+    .opcoes label.ativa { border-color: var(--cor); box-shadow: 0 0 0 3px var(--cor-suave); }
+    .check { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: -4px 0 12px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="topo" id="topo"></div>
+
+  <div class="conteudo">
+    <form id="form" autocomplete="off" novalidate hidden>
+      <div class="linha-2">
+        <div class="campo">
+          <label for="cliente">Cliente *</label>
+          <input id="cliente" name="cliente" list="listaClientes" placeholder="Digite para buscar">
+          <datalist id="listaClientes"></datalist>
+        </div>
+        <div class="campo">
+          <label for="entrega">Data de entrega</label>
+          <input id="entrega" name="entrega" type="date">
+          <small>Obrigatória quando há item de encomenda.</small>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="novoCliente"> Cliente novo (cadastrar agora)</label>
+      <div class="campo" id="campoWhats" hidden>
+        <label for="clienteWhatsapp">WhatsApp do cliente novo</label>
+        <input id="clienteWhatsapp" inputmode="tel" placeholder="(11) 91234-5678">
+      </div>
+
+      <h2>Itens</h2>
+      <table class="tabela">
+        <thead><tr><th>Produto</th><th class="qtd">Qtd.</th><th class="preco">Preço un. (R$)</th><th class="sub">Subtotal</th><th class="remover"></th></tr></thead>
+        <tbody id="linhas"></tbody>
+      </table>
+      <button type="button" class="btn btn-secundario" data-action="adicionar" style="margin-top:8px">+ Adicionar item</button>
+
+      <div class="totais">
+        <span class="rotulo">Soma dos itens</span><span id="soma">R$ 0,00</span>
+        <span class="rotulo">Desconto (R$)</span><input id="desconto" inputmode="decimal" placeholder="0,00" style="width:110px;padding:6px 8px;border:1px solid var(--linha);border-radius:8px;text-align:right">
+        <span class="rotulo grande">Total</span><span class="grande" id="total">R$ 0,00</span>
+      </div>
+
+      <div id="blocoStatus">
+        <h2>Situação</h2>
+        <div class="opcoes" id="opcoesStatus">
+          <label class="ativa"><input type="radio" name="status" value="Orçamento" checked><strong>Orçamento</strong><small>Ainda não fechado. Os itens podem mudar.</small></label>
+          <label><input type="radio" name="status" value="Confirmado"><strong>Confirmado</strong><small>Cliente fechou o pedido.</small></label>
+        </div>
+        <div class="linha-2" id="blocoSinal" hidden style="margin-top:12px">
+          <div class="campo">
+            <label for="sinalValor">Sinal recebido agora (R$)</label>
+            <input id="sinalValor" inputmode="decimal" placeholder="0,00">
+          </div>
+          <div class="campo">
+            <label for="sinalForma">Forma de pagamento</label>
+            <select id="sinalForma"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="campo" style="margin-top:12px">
+        <label for="obs">Observações</label>
+        <textarea id="obs" rows="2" maxlength="300" placeholder="Ex.: sabor, cor, embalagem para presente"></textarea>
+      </div>
+    </form>
+    <div class="carregando" id="carregando">Carregando…</div>
+  </div>
+
+  <div class="acoes">
+    <button class="btn btn-secundario" data-action="fechar">Fechar</button>
+    <button class="btn btn-principal" data-action="salvar" id="btnSalvar" disabled>Salvar pedido</button>
+  </div>
+  <div class="rodape" id="rodape"></div>
+
+  <script>const MARCA = <?!= marcaJson ?>; const PARAMS = <?!= parametrosJson ?>;</script>
+  <?!= incluir('Base') ?>
+  <script>
+    var DADOS = null;
+    var EDITANDO = !!PARAMS.codigo;
+    var form = document.getElementById('form');
+    var alterado = false;
+
+    function numeroBR(v) {
+      var s = String(v || '').replace(/[R$\s]/g, '');
+      if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+      var n = Number(s);
+      return s === '' || !isFinite(n) ? null : n;
+    }
+    function reais(n) { return 'R$ ' + (n || 0).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+    function br(n) { return n === null || n === undefined || n === '' ? '' : String(n).replace('.', ','); }
+    function produtoPorCodigo(c) { return DADOS.produtos.filter(function (p) { return p.codigo === c; })[0]; }
+
+    function linhaHtml(item) {
+      var opcoes = '<option value="">Escolha…</option>' + DADOS.produtos.map(function (p) {
+        return '<option value="' + escapar(p.codigo) + '"' + (item && item.produto === p.codigo ? ' selected' : '') + '>'
+          + escapar(p.nome) + (p.tipo === 'Pronta-entrega' ? ' (pronta-entrega)' : '') + '</option>';
+      }).join('');
+      return '<tr><td><select data-campo="produto">' + opcoes + '</select></td>'
+        + '<td class="qtd"><input data-campo="quantidade" inputmode="decimal" value="' + escapar(item ? br(item.quantidade) : '1') + '"></td>'
+        + '<td class="preco"><input data-campo="preco" inputmode="decimal" value="' + escapar(item ? br(item.preco) : '') + '"></td>'
+        + '<td class="sub" data-sub></td>'
+        + '<td class="remover"><button type="button" data-action="remover" title="Remover">×</button></td></tr>';
+    }
+
+    function recalcular() {
+      var soma = 0;
+      document.querySelectorAll('#linhas tr').forEach(function (tr) {
+        var q = numeroBR(tr.querySelector('[data-campo="quantidade"]').value) || 0;
+        var p = numeroBR(tr.querySelector('[data-campo="preco"]').value) || 0;
+        tr.querySelector('[data-sub]').textContent = tr.querySelector('[data-campo="produto"]').value ? reais(q * p) : '';
+        soma += q * p;
+      });
+      var desc = numeroBR(document.getElementById('desconto').value) || 0;
+      document.getElementById('soma').textContent = reais(soma);
+      document.getElementById('total').textContent = reais(Math.max(soma - desc, 0));
+    }
+
+    // Ao escolher o produto, o preço de venda cadastrado entra como sugestão (pode ser alterado).
+    document.getElementById('linhas').addEventListener('change', function (e) {
+      if (e.target.getAttribute('data-campo') === 'produto') {
+        var p = produtoPorCodigo(e.target.value);
+        var preco = e.target.closest('tr').querySelector('[data-campo="preco"]');
+        if (p && !preco.value) preco.value = br(p.preco || '');
+      }
+      alterado = true; recalcular();
+    });
+    document.getElementById('linhas').addEventListener('input', function () { alterado = true; recalcular(); });
+    document.getElementById('desconto').addEventListener('input', function () { alterado = true; recalcular(); });
+
+    document.getElementById('novoCliente').addEventListener('change', function () {
+      document.getElementById('campoWhats').hidden = !this.checked;
+      form.cliente.removeAttribute('list');
+      if (!this.checked) form.cliente.setAttribute('list', 'listaClientes');
+      form.cliente.placeholder = this.checked ? 'Nome do cliente novo' : 'Digite para buscar';
+    });
+
+    document.getElementById('opcoesStatus').addEventListener('change', function () {
+      var conf = form.querySelector('[name="status"]:checked').value === 'Confirmado';
+      document.getElementById('blocoSinal').hidden = !conf;
+      document.querySelectorAll('#opcoesStatus label').forEach(function (l) {
+        l.classList.toggle('ativa', l.querySelector('input').checked);
+      });
+    });
+
+    ACOES.adicionar = function () {
+      document.getElementById('linhas').insertAdjacentHTML('beforeend', linhaHtml(null));
+      var s = document.querySelectorAll('#linhas select'); s[s.length - 1].focus();
+    };
+    ACOES.remover = function (el) {
+      el.closest('tr').remove();
+      if (!document.querySelector('#linhas tr')) ACOES.adicionar();
+      alterado = true; recalcular();
+    };
+
+    function coletar() {
+      var itens = [];
+      document.querySelectorAll('#linhas tr').forEach(function (tr) {
+        var produto = tr.querySelector('[data-campo="produto"]').value;
+        if (!produto) return;
+        itens.push({ produto: produto, quantidade: tr.querySelector('[data-campo="quantidade"]').value, preco: tr.querySelector('[data-campo="preco"]').value });
+      });
+      return {
+        codigo: PARAMS.codigo || '',
+        cliente: form.cliente.value.trim(),
+        novoCliente: document.getElementById('novoCliente').checked,
+        clienteWhatsapp: document.getElementById('clienteWhatsapp').value,
+        entrega: form.entrega.value,
+        status: form.querySelector('[name="status"]:checked').value,
+        itens: itens,
+        desconto: document.getElementById('desconto').value,
+        sinalValor: document.getElementById('sinalValor').value,
+        sinalForma: document.getElementById('sinalForma').value,
+        obs: document.getElementById('obs').value
+      };
+    }
+
+    function enviar(dados) {
+      var btn = document.getElementById('btnSalvar');
+      btn.disabled = true; btn.textContent = 'Salvando…';
+      chamar('salvarPedido', dados)
+        .then(function (r) {
+          if (r.confirmar) {
+            return abrirSobre(r.avisos.map(function (a) { return a.titulo; }).join(' '), r.avisos.map(function (a) { return a.acao; }).join(' '),
+              r.avisos.map(function (a) { return a.codigo; }).join(', '),
+              [{ texto: 'Voltar e corrigir', valor: false }, { texto: 'Salvar assim mesmo', classe: 'btn-principal', valor: true }])
+              .then(function (ok) {
+                btn.disabled = false; btn.textContent = 'Salvar pedido';
+                if (ok) { dados.confirmado = true; enviar(dados); }
+              });
+          }
+          alterado = false;
+          return abrirSobre('Pedido ' + r.codigo + (EDITANDO ? ' alterado' : ' criado'), 'Total: ' + reais(r.total) + '.', '',
+            [{ texto: 'Fechar', valor: 'fechar' }].concat(EDITANDO ? [] : [{ texto: 'Criar outro pedido', classe: 'btn-principal', valor: 'outro' }]))
+            .then(function (v) {
+              if (v === 'outro') { google.script.run.abrirNovoPedido(); } else { fecharJanela(); }
+            });
+        })
+        .catch(function (e) {
+          mostrarErro(e);
+          btn.disabled = false; btn.textContent = 'Salvar pedido';
+        });
+    }
+
+    ACOES.salvar = function () {
+      var d = coletar();
+      var faltando = [];
+      if (!d.cliente) faltando.push('cliente');
+      marcarErros(form, faltando);
+      if (!d.itens.length) {
+        mostrarErro({ codigo: 'DD-10', titulo: 'O pedido não tem itens.', acao: 'Escolha pelo menos um produto na lista de itens.' });
+        return;
+      }
+      if (faltando.length) {
+        mostrarErro({ codigo: 'DD-10', titulo: 'Falta escolher o cliente.', acao: 'Escolha um cliente da lista ou marque "Cliente novo".' });
+        return;
+      }
+      enviar(d);
+    };
+
+    ACOES.fechar = function () {
+      if (!alterado) { fecharJanela(); return; }
+      confirmar('Fechar sem salvar?', 'O pedido ainda não foi salvo.', 'Fechar sem salvar', true)
+        .then(function (ok) { if (ok) fecharJanela(); });
+    };
+
+    chamar('carregarDadosPedido', PARAMS.codigo || '')
+      .then(function (d) {
+        DADOS = d;
+        document.getElementById('listaClientes').innerHTML = d.clientes.map(function (c) { return '<option value="' + escapar(c.nome) + '">'; }).join('');
+        document.getElementById('sinalForma').innerHTML = d.formas.map(function (f) { return '<option>' + escapar(f) + '</option>'; }).join('');
+        if (!d.produtos.length) {
+          document.getElementById('carregando').textContent = 'Nenhum produto cadastrado ainda. Cadastre em Destrava › Cadastrar › Produto.';
+          return;
+        }
+        var itens = [null];
+        if (d.pedido) {
+          form.cliente.value = d.pedido.cliente;
+          form.entrega.value = d.pedido.entrega;
+          document.getElementById('desconto').value = d.pedido.desconto ? br(d.pedido.desconto) : '';
+          document.getElementById('obs').value = d.pedido.obs;
+          document.getElementById('blocoStatus').hidden = true; // edição: continua orçamento
+          itens = d.pedido.itens;
+        }
+        document.getElementById('linhas').innerHTML = itens.map(linhaHtml).join('');
+        recalcular();
+        document.getElementById('carregando').remove();
+        form.hidden = false;
+        document.getElementById('btnSalvar').disabled = false;
+        form.cliente.focus();
+      })
+      .catch(function (e) { document.getElementById('carregando').textContent = ''; mostrarErro(e).then(fecharJanela); });
+  </script>
+</body>
+</html>

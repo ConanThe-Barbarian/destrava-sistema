@@ -9,6 +9,9 @@
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('Destrava')
+    .addItem('Novo pedido', 'abrirNovoPedido')
+    .addItem('Pedidos', 'abrirPedidos')
+    .addSeparator()
     .addSubMenu(ui.createMenu('Cadastrar')
       .addItem('Cliente', 'abrirCadastroCliente')
       .addItem('Produto', 'abrirCadastroProduto')

@@ -13,7 +13,9 @@
  */
 
 const MARCA_TESTE = '[TESTE]';
-const ABAS_COM_LINHAS_DE_TESTE = [ABA.CLIENTES, ABA.PRODUTOS, ABA.INSUMOS, ABA.FICHA, ABA.MOVIMENTOS, ABA.ATIVIDADES];
+const ABAS_COM_LINHAS_DE_TESTE = [
+  ABA.PEDIDOS, ABA.ITENS, ABA.CAIXA, ABA.CLIENTES, ABA.PRODUTOS, ABA.INSUMOS, ABA.FICHA, ABA.MOVIMENTOS, ABA.ATIVIDADES
+];
 
 function testarSistema() {
   const ss = SpreadsheetApp.getActive();
@@ -27,6 +29,7 @@ function testarSistema() {
     const insumo = testarInsumos_(r);
     const produto = testarProdutos_(r);
     if (insumo && produto) testarFicha_(r, insumo, produto, antes.config);
+    if (insumo && produto) testarPedidos_(r, insumo, produto);
     testarAtividades_(r);
   } catch (e) {
     r.falha('O teste parou no meio por um erro inesperado', String(e && e.stack ? e.stack : e));
@@ -176,6 +179,127 @@ function testarFicha_(r, insumo, produto, config) {
   const semFicha = lerTabela(ABA.PRODUTOS).find(x => x.codigo === produto);
   r.verdadeiro('Ficha técnica: remover ficha zera o custo dos insumos', vazia.ok && Number(semFicha.custoInsumos) === 0,
     'custo ficou ' + semFicha.custoInsumos);
+}
+
+/**
+ * Pedidos: criação, sinal, ciclo de status, baixa e estorno de estoque, pagamento e cancelamento.
+ * insumo: farinha com 5.000 g (do teste de insumos). semFicha: produto de encomenda sem ficha.
+ */
+function testarPedidos_(r, insumo, semFicha) {
+  const cliente = MARCA_TESTE + ' Carla Souza';
+  const futuro = Utilities.formatDate(new Date(Date.now() + 7 * 864e5), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const passado = Utilities.formatDate(new Date(Date.now() - 3 * 864e5), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const saldoDe = cod => lerTabela(ABA.MOVIMENTOS).filter(m => String(m.item) === cod)
+    .reduce((s, m) => s + (Number(m.quantidade) || 0), 0);
+  const statusDe = cod => String(lerPedido_(cod).status);
+
+  // Cenário: torta (encomenda, 300 g de farinha por unidade) e brigadeiro (pronta-entrega, 10 em estoque).
+  const torta = salvarProduto({ nome: MARCA_TESTE + ' Torta', tipo: 'Encomenda', unidade: 'un', horas: '1', preco: '80' });
+  const brig = salvarProduto({ nome: MARCA_TESTE + ' Brigadeiro', tipo: 'Pronta-entrega', unidade: 'un', custoCompra: '1', preco: '3' });
+  if (!torta.ok || !brig.ok) { r.falha('Pedidos: preparar produtos', (torta.erro || brig.erro).titulo); return; }
+  const T = torta.dados.codigo, B = brig.dados.codigo;
+  salvarFicha(T, [{ insumo: insumo, quantidade: '300' }]);
+  inserirLinha(ABA.MOVIMENTOS, { data: new Date(), item: B, itemNome: MARCA_TESTE + ' Brigadeiro', tipo: 'Ajuste',
+    quantidade: 10, custoUnit: 1, quem: 'Teste', obs: MARCA_TESTE });
+  const base = { cliente: cliente, entrega: futuro, status: 'Confirmado', desconto: '10', sinalValor: '50', sinalForma: 'Pix',
+    itens: [{ produto: T, quantidade: '2', preco: '80' }] };
+
+  // Recusas antes de gravar.
+  r.erro('Pedido: sem itens recusado', salvarPedido(Object.assign({}, base, { itens: [] })), 'DD-10');
+  r.erro('Pedido: sinal maior que o total recusado', salvarPedido(Object.assign({}, base, { sinalValor: '500' })), 'DD-15');
+  r.erro('Pedido: encomenda sem data de entrega recusada', salvarPedido(Object.assign({}, base, { entrega: '' })), 'DD-10');
+  r.erro('Pedido: cliente fora da lista recusado', salvarPedido(Object.assign({}, base, { cliente: MARCA_TESTE + ' Ninguém' })), 'DD-19');
+  const noPassado = salvarPedido(Object.assign({}, base, { entrega: passado }));
+  r.verdadeiro('Pedido: entrega no passado pede confirmação (DD-11)',
+    noPassado.ok && noPassado.dados.confirmar && noPassado.dados.avisos[0].codigo === 'DD-11');
+
+  // Pedido A: 2 tortas de 80, desconto 10, sinal 50.
+  const a = salvarPedido(base);
+  r.verdadeiro('Pedido: criar confirmado com sinal', a.ok, a.erro && a.erro.titulo);
+  if (!a.ok) return;
+  const A = a.dados.codigo;
+  r.verdadeiro('Pedido: código no formato PED-0000', /^PED-\d{4}$/.test(A), A);
+  const pa = lerPedido_(A);
+  r.perto('Pedido: total com desconto', totalDoPedido_(pa, itensDoPedido_(A)), 150);
+  r.perto('Pedido: sinal entra no caixa', pagoDoPedido_(A), 50);
+  r.perto('Pedido: saldo a receber', saldoDoPedido_(pa, itensDoPedido_(A)), 100);
+  r.perto('Pedido: custo do item gravado no momento', itensDoPedido_(A)[0].custoUnit, 300 * 0.0065);
+  SpreadsheetApp.flush();
+  const linhaA = lerTabela(ABA.PEDIDOS).find(x => x.codigo === A);
+  r.perto('Pedido: coluna Total da aba confere', linhaA.total, 150);
+  r.perto('Pedido: coluna Saldo da aba confere', linhaA.saldo, 100);
+
+  r.erro('Pedido: itens não mudam depois de confirmado', salvarPedido(Object.assign({}, base, { codigo: A })), 'DD-22');
+  r.erro('Pedido: janela de alteração recusa pedido confirmado', carregarDadosPedido(A), 'DD-22');
+  r.erro('Status: pular de Confirmado para Pronto recusado', mudarStatus(A, 'Pronto'), 'DD-12');
+  r.erro('Status: encomenda não vai direto para Entregue', mudarStatus(A, 'Entregue'), 'DD-12');
+
+  const prod = mudarStatus(A, 'Em produção');
+  r.verdadeiro('Status: Em produção sem avisos', prod.ok && !prod.dados.confirmar, prod.ok ? 'pediu confirmação' : prod.erro.titulo);
+  r.perto('Estoque: Em produção baixa a farinha da ficha (5.000 − 600)', saldoDe(insumo), 4400);
+  r.verdadeiro('Estoque: item marcado como baixado', itensDoPedido_(A).every(i => i.baixado === true));
+
+  r.erro('Pagamento: maior que o saldo recusado', registrarPagamento(A, { valor: '200', forma: 'Pix' }), 'DD-15');
+  r.erro('Pagamento: sem forma recusado', registrarPagamento(A, { valor: '10', forma: '' }), 'DD-10');
+  const pg = registrarPagamento(A, { valor: '100,00', forma: 'Dinheiro' });
+  r.verdadeiro('Pagamento: quita o pedido', pg.ok && pg.dados.saldo === 0, pg.ok ? 'saldo ' + pg.dados.saldo : pg.erro.titulo);
+
+  mudarStatus(A, 'Pronto');
+  const ent = mudarStatus(A, 'Entregue');
+  r.verdadeiro('Status: ciclo completo até Entregue', ent.ok && statusDe(A) === 'Entregue', ent.ok ? statusDe(A) : ent.erro.titulo);
+  r.perto('Estoque: entregar encomenda não baixa de novo', saldoDe(insumo), 4400);
+  r.erro('Status: pedido entregue não pode ser cancelado', mudarStatus(A, 'Cancelado'), 'DD-12');
+
+  // Pedido B: 20 tortas precisam de 6.000 g e só há 4.400 g.
+  const b = salvarPedido(Object.assign({}, base, { desconto: '', sinalValor: '100', itens: [{ produto: T, quantidade: '20', preco: '80' }] }));
+  const Bp = b.ok ? b.dados.codigo : null;
+  const aviso = Bp && mudarStatus(Bp, 'Em produção');
+  r.verdadeiro('Estoque: saldo negativo pede confirmação (DD-14)',
+    aviso && aviso.ok && aviso.dados.confirmar && aviso.dados.avisos.some(x => x.codigo === 'DD-14'));
+  r.igual('Estoque: sem confirmar, nada muda', Bp && statusDe(Bp), 'Confirmado');
+  mudarStatus(Bp, 'Em produção', { confirmado: true });
+  r.perto('Estoque: confirmado, farinha fica negativa', saldoDe(insumo), -1600);
+  SpreadsheetApp.flush();
+  const farinha = lerTabela(ABA.INSUMOS).find(x => x.codigo === insumo);
+  r.igual('Estoque: situação do insumo negativo', farinha && farinha.situacao, 'Repor');
+
+  r.erro('Cancelar: devolução maior que o pago recusada', mudarStatus(Bp, 'Cancelado', { devolucaoValor: '500', devolucaoForma: 'Pix' }), 'DD-23');
+  const canc = mudarStatus(Bp, 'Cancelado', { devolucaoValor: '60', devolucaoForma: 'Pix' });
+  r.verdadeiro('Cancelar: pedido em produção', canc.ok && statusDe(Bp) === 'Cancelado', canc.ok ? statusDe(Bp) : canc.erro.titulo);
+  r.perto('Cancelar: estorno devolve a farinha', saldoDe(insumo), 4400);
+  r.verdadeiro('Cancelar: itens desmarcados como baixados', itensDoPedido_(Bp).every(i => i.baixado !== true));
+  r.perto('Cancelar: devolução sai do caixa (100 − 60)', pagoDoPedido_(Bp), 40);
+
+  // Pedido C: pronta-entrega, sem data, começa como orçamento e é alterado.
+  const c = salvarPedido({ cliente: cliente, status: 'Orçamento', itens: [{ produto: B, quantidade: '4', preco: '3' }] });
+  r.verdadeiro('Pedido: pronta-entrega sem data de entrega', c.ok, c.erro && c.erro.titulo);
+  if (c.ok) {
+    const C = c.dados.codigo;
+    const alt = salvarPedido({ codigo: C, cliente: cliente, itens: [{ produto: B, quantidade: '5', preco: '3' }] });
+    r.verdadeiro('Pedido: orçamento pode ser alterado', alt.ok && alt.dados.total === 15 && itensDoPedido_(C).length === 1,
+      alt.ok ? 'total ' + alt.dados.total : alt.erro.titulo);
+    mudarStatus(C, 'Confirmado');
+    const direto = mudarStatus(C, 'Entregue');
+    r.verdadeiro('Status: pronta-entrega vai de Confirmado direto para Entregue', direto.ok && statusDe(C) === 'Entregue',
+      direto.ok ? statusDe(C) : direto.erro.titulo);
+    r.perto('Estoque: entrega baixa o produto pronto (10 − 5)', saldoDe(B), 5);
+  }
+
+  // Pedido D: produto sem ficha técnica avisa que não haverá baixa.
+  const d = salvarPedido(Object.assign({}, base, { desconto: '', sinalValor: '', itens: [{ produto: semFicha, quantidade: '1', preco: '80' }] }));
+  const semF = d.ok && mudarStatus(d.dados.codigo, 'Em produção');
+  r.verdadeiro('Estoque: produto sem ficha pede confirmação (DD-13)',
+    semF && semF.ok && semF.dados.confirmar && semF.dados.avisos.some(x => x.codigo === 'DD-13'));
+  if (d.ok) mudarStatus(d.dados.codigo, 'Cancelado');
+
+  SpreadsheetApp.flush();
+  const carla = lerTabela(ABA.CLIENTES).find(x => x.nome === cliente);
+  r.perto('Clientes: contagem de pedidos ignora cancelados', carla && carla.qtdPedidos, 2);
+
+  const lista = listarPedidos();
+  const la = lista.ok && lista.dados.find(x => x.codigo === A);
+  r.verdadeiro('Lista de pedidos: mostra itens e pagamentos', la && la.itens.length === 1 && la.pagamentos.length === 2,
+    lista.ok ? '' : lista.erro.titulo);
 }
 
 function testarAtividades_(r) {

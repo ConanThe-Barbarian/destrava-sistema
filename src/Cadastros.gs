@@ -42,34 +42,41 @@ function carregarCadastro() {
 function salvarCliente(form) {
   return executar_('salvarCliente', () => {
     exigirLicenca_();
-    const nome = texto_(form.nome, 80);
-    if (!nome) throw new ErroDD('DD-10', { campos: 'nome' });
-
-    const whatsapp = String(form.whatsapp || '').replace(/\D/g, '');
-    if (whatsapp && (whatsapp.length < 10 || whatsapp.length > 11)) {
-      throw new ErroDD('DD-19', { campo: 'WhatsApp', dica: 'Use o número com DDD, por exemplo (11) 91234-5678.' });
-    }
-    const email = texto_(form.email, 120).toLowerCase();
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
-      throw new ErroDD('DD-19', { campo: 'e-mail', dica: 'Confira se o e-mail está completo, por exemplo nome@gmail.com, ou deixe em branco.' });
-    }
-
-    return comTrava_(() => {
-      exigirNomeUnico_(ABA.CLIENTES, nome, 'um cliente');
-      const codigo = proximoCodigo('CLIENTE', 'CLI');
-      inserirLinha(ABA.CLIENTES, {
-        codigo: codigo,
-        nome: nome,
-        whatsapp: whatsapp ? formatarWhats_(whatsapp) : '',
-        email: email,
-        endereco: texto_(form.endereco, 200),
-        obs: texto_(form.obs, 300),
-        cadastro: new Date()
-      });
-      registrarAtividade('Cliente cadastrado: ' + codigo + ' — ' + nome + '.');
-      return { codigo: codigo, nome: nome };
-    });
+    const dados = validarCliente_(form);
+    return comTrava_(() => criarCliente_(dados));
   });
+}
+
+/** Valida e normaliza os dados de um cliente. Usado aqui e no cliente rápido do pedido. */
+function validarCliente_(form) {
+  const nome = texto_(form.nome, 80);
+  if (!nome) throw new ErroDD('DD-10', { campos: 'nome do cliente' });
+  const whatsapp = String(form.whatsapp || '').replace(/\D/g, '');
+  if (whatsapp && (whatsapp.length < 10 || whatsapp.length > 11)) {
+    throw new ErroDD('DD-19', { campo: 'WhatsApp', dica: 'Use o número com DDD, por exemplo (11) 91234-5678.' });
+  }
+  const email = texto_(form.email, 120).toLowerCase();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    throw new ErroDD('DD-19', { campo: 'e-mail', dica: 'Confira se o e-mail está completo, por exemplo nome@gmail.com, ou deixe em branco.' });
+  }
+  return { nome: nome, whatsapp: whatsapp, email: email, endereco: texto_(form.endereco, 200), obs: texto_(form.obs, 300) };
+}
+
+/** Grava um cliente já validado. Chamar dentro de comTrava_. */
+function criarCliente_(d) {
+  exigirNomeUnico_(ABA.CLIENTES, d.nome, 'um cliente');
+  const codigo = proximoCodigo('CLIENTE', 'CLI');
+  inserirLinha(ABA.CLIENTES, {
+    codigo: codigo,
+    nome: d.nome,
+    whatsapp: d.whatsapp ? formatarWhats_(d.whatsapp) : '',
+    email: d.email,
+    endereco: d.endereco,
+    obs: d.obs,
+    cadastro: new Date()
+  });
+  registrarAtividade('Cliente cadastrado: ' + codigo + ' — ' + d.nome + '.');
+  return { codigo: codigo, nome: d.nome };
 }
 
 // ---------- produto ----------
