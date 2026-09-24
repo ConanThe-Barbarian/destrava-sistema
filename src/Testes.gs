@@ -227,6 +227,7 @@ function testarPedidos_(r, insumo, semFicha) {
   SpreadsheetApp.flush();
   const linhaA = lerTabela(ABA.PEDIDOS).find(x => x.codigo === A);
   r.perto('Pedido: coluna Total da aba confere', linhaA.total, 150);
+  r.perto('Pedido: coluna Pago da aba confere', linhaA.pago, 50);
   r.perto('Pedido: coluna Saldo da aba confere', linhaA.saldo, 100);
 
   r.erro('Pedido: itens não mudam depois de confirmado', salvarPedido(Object.assign({}, base, { codigo: A })), 'DD-22');
@@ -269,6 +270,11 @@ function testarPedidos_(r, insumo, semFicha) {
   r.perto('Cancelar: estorno devolve a farinha', saldoDe(insumo), 4400);
   r.verdadeiro('Cancelar: itens desmarcados como baixados', itensDoPedido_(Bp).every(i => i.baixado !== true));
   r.perto('Cancelar: devolução sai do caixa (100 − 60)', pagoDoPedido_(Bp), 40);
+  // Segundo pedido da aba: garante que a coluna calculada vale linha a linha, não só na primeira.
+  SpreadsheetApp.flush();
+  const linhaB = lerTabela(ABA.PEDIDOS).find(x => x.codigo === Bp);
+  r.perto('Pedido: coluna Pago do segundo pedido confere (entrada − devolução)', linhaB && linhaB.pago, 40);
+  r.perto('Pedido: coluna Saldo de cancelado é zero', linhaB && linhaB.saldo, 0);
 
   // Pedido C: pronta-entrega, sem data, começa como orçamento e é alterado.
   const c = salvarPedido({ cliente: cliente, status: 'Orçamento', itens: [{ produto: B, quantidade: '4', preco: '3' }] });

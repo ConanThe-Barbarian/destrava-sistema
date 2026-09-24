@@ -67,7 +67,13 @@ const ESQUEMA = {
         formula: L => `IF(${L.codigo}2:${L.codigo}="",,SUMIF(${ref(ABA.ITENS,'pedido')},${L.codigo}2:${L.codigo},${ref(ABA.ITENS,'subtotal')})-${L.desconto}2:${L.desconto})` },
       { chave: 'desconto', titulo: 'Desconto', largura: 90, formato: FMT.MOEDA },
       { chave: 'pago', titulo: 'Pago', largura: 100, formato: FMT.MOEDA,
-        formula: L => `IF(${L.codigo}2:${L.codigo}="",,SUMIFS(${ref(ABA.CAIXA,'valor')},${ref(ABA.CAIXA,'pedido')},${L.codigo}2:${L.codigo},${ref(ABA.CAIXA,'tipo')},"Entrada")-SUMIFS(${ref(ABA.CAIXA,'valor')},${ref(ABA.CAIXA,'pedido')},${L.codigo}2:${L.codigo},${ref(ABA.CAIXA,'tipo')},"Saída"))` },
+        // SUMIFS não se expande dentro de ARRAYFORMULA (repete o valor da 1ª linha).
+        // Por isso: SUMIF sobre a chave "pedido|tipo".
+        formula: L => {
+          const chave = `${ref(ABA.CAIXA,'pedido')}&"|"&${ref(ABA.CAIXA,'tipo')}`;
+          return `IF(${L.codigo}2:${L.codigo}="",,SUMIF(${chave},${L.codigo}2:${L.codigo}&"|Entrada",${ref(ABA.CAIXA,'valor')})`
+            + `-SUMIF(${chave},${L.codigo}2:${L.codigo}&"|Saída",${ref(ABA.CAIXA,'valor')}))`;
+        } },
       { chave: 'saldo', titulo: 'Saldo', largura: 100, formato: FMT.MOEDA,
         formula: L => `IF(${L.codigo}2:${L.codigo}="",,IF(${L.status}2:${L.status}="Cancelado",0,${L.total}2:${L.total}-${L.pago}2:${L.pago}))` },
       { chave: 'custo', titulo: 'Custo', largura: 100, formato: FMT.MOEDA,
