@@ -6,7 +6,7 @@ Código Apps Script da planilha modelo. A pasta `src/` é a fonte da verdade: o 
 
 No editor do Apps Script, escolha a função **`testarSistema`** e clique em **Executar**. Em cerca de 1 minuto aparece uma janela na planilha com o relatório (✅ ou ❌ em cada verificação). O mesmo texto fica no Registro de execução.
 
-- Confere estrutura, fórmulas, configurações, cadastros, ficha técnica, cálculo de preço, pedidos (ciclo, pagamento, baixa e estorno de estoque, cancelamento), entrada e ajuste de estoque, custo médio, caixa avulso, painel do mês e atividades.
+- Confere estrutura, fórmulas, configurações, cadastros, ficha técnica, cálculo de preço, pedidos (ciclo, pagamento, baixa e estorno de estoque, cancelamento), entrada e ajuste de estoque, custo médio, caixa avulso, painel do mês, licença (com o servidor simulado) e atividades.
 - Usa a própria planilha com dados marcados `[TESTE]` e, no fim, apaga tudo e devolve configurações, contadores e nome do arquivo como estavam.
 - Não use a planilha enquanto ele roda.
 - Rode depois de cada `clasp push`. Cada bloco novo acrescenta os testes dele.
@@ -172,8 +172,42 @@ Depois do `clasp push`, rode `configurarPlanilha`. Ele cria a coluna "Entregue e
 - [ ] Escolher o mês passado na lista muda os 6 números e o gráfico; apagar a célula volta ao mês atual
 - [ ] Mudar a cor em Configurações muda o título, os cartões e o gráfico
 
-## Próximos blocos
+## Bloco 6 — licença
 
-6. Licença real (depois da API)
+| Arquivo | O que faz |
+| --- | --- |
+| `Licenca.gs` | Ativação da chave, aprovação diária e a porta `exigirLicenca_()` de toda gravação |
+| `JanelaLicenca.html` | Destrava › Licença: ativar com a chave e o nome do cliente, ver a situação, "Conferir agora" |
 
-Antes de gerar o modelo de venda: `MODO_DESENVOLVIMENTO = false` em `Licenca.gs`.
+Regras:
+
+- **Sem aprovação do dia, nada é gravado.** Ler a planilha nunca depende da licença.
+- **Uma chamada ao servidor por dia**, na primeira ação que grava. A aprovação vale até 23h59 de São Paulo.
+- **Arquivo copiado não herda a aprovação.** A licença guarda o ID da planilha; a cópia precisa de ativação própria.
+- **Janela:** mostra só o fim da chave (`DD-••••-••••-XXXX`) e cuida de cada situação:
+  - limite atingido: mostra o botão "Aumentar meu plano", que só aceita link da Hotmart;
+  - revogada: DD-04;
+  - servidor fora: DD-05.
+- **Plano Agência** esconde "feito com Destrava Digital" do rodapé, a partir da aprovação seguinte.
+- **Testes:** a janela de ativação sempre fala com a API de verdade, mesmo em modo desenvolvimento. O `testarSistema` usa um servidor simulado.
+
+### Roteiro de teste do bloco 6 (com a API no ar)
+
+- [ ] No painel `/admin`, "Registrar compra" cria uma licença de teste para o seu e-mail; a chave chega no e-mail
+- [ ] Destrava › Licença: chave errada mostra a DD-02; a chave certa ativa e mostra "Aprovada hoje", o plano e "1 de 5"
+- [ ] Ativar de novo a mesma planilha diz "já estava ativada" e continua 1 de 5
+- [ ] No painel, a planilha aparece com o nome do cliente; "Liberar vaga" e depois "Conferir agora" na planilha mostra a DD-01
+- [ ] Revogar no painel e "Conferir agora" mostra a DD-04; reativar e conferir volta ao normal
+- [ ] Com `MODO_DESENVOLVIMENTO = false` numa cópia de teste: gravar sem ativar mostra a DD-01
+
+## Próximos passos
+
+- Manual em PDF
+- Página de vendas e cadastro na Hotmart
+
+Antes de gerar o modelo de venda:
+
+1. `MODO_DESENVOLVIMENTO = false` em `Licenca.gs`.
+2. Apagar `Testes.gs`.
+3. Rodar `configurarPlanilha`.
+4. Conferir que Destrava › Licença não mostra o aviso de modo desenvolvimento.

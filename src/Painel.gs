@@ -51,6 +51,8 @@ function montarPainel_(ss, aba) {
   aba.getRange('L2').setFormula('=ARRAYFORMULA(TEXT(M2:M25,"mmmm ""de"" yyyy"))');
   aba.getRange('I1').setFormula(`=IF(${PAINEL.MES}="",M2,IFERROR(INDEX(M2:M25,MATCH(${PAINEL.MES},L2:L25,0)),M2))`);
   aba.getRange('I2').setFormula('=EDATE(I1,1)');
+  // Formato de data explícito: sem ele, a célula guarda o número de série e quem lê pelo script recebe um número.
+  aba.getRangeList(['I1:I2', 'M2:M25']).setNumberFormat('yyyy-mm-dd');
   // Vendido dos 6 meses que terminam no mês escolhido (dados do gráfico).
   aba.getRange('I4:J4').setValues([['Mês', 'Vendido']]);
   for (let k = 0; k < 6; k++) {

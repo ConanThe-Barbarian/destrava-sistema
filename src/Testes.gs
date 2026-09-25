@@ -33,6 +33,7 @@ function testarSistema() {
     if (insumo && produto) testarPedidos_(r, insumo, produto);
     testarEstoqueCaixa_(r);
     if (insumo && produto) testarPainel_(r, painelAntes);
+    testarLicenca_(r);
     testarAtividades_(r);
   } catch (e) {
     r.falha('O teste parou no meio por um erro inesperado', String(e && e.stack ? e.stack : e));
@@ -470,15 +471,104 @@ function testarPainel_(r, antes) {
   const original = aba.getRange(PAINEL.MES).getValue();
   aba.getRange(PAINEL.MES).setValue(aba.getRange('L3').getValue());
   SpreadsheetApp.flush();
-  const ini = aba.getRange(PAINEL.INICIO).getValue();
+  const ini = aba.getRange(PAINEL.INICIO).getDisplayValue().slice(0, 7);
   const esperado = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
-  r.igual('Painel: escolher o mês anterior muda o período', ini instanceof Date && Utilities.formatDate(ini, tz, 'yyyy-MM'), Utilities.formatDate(esperado, tz, 'yyyy-MM'));
+  r.igual('Painel: escolher o mês anterior muda o período', ini, Utilities.formatDate(esperado, tz, 'yyyy-MM'));
+  r.verdadeiro('Painel: o título do período acompanha a escolha',
+    aba.getRange('D4').getDisplayValue().indexOf(String(aba.getRange('L3').getValue())) >= 0, aba.getRange('D4').getDisplayValue());
   aba.getRange(PAINEL.MES).setValue(original);
   SpreadsheetApp.flush();
 
   // Os dois pedidos ficam abertos: cancela para não sobrar nada no painel real.
   mudarStatus(amanha.dados.codigo, 'Cancelado');
   mudarStatus(atrasado.dados.codigo, 'Cancelado');
+}
+
+/**
+ * Licença: o servidor é simulado (nenhuma chamada à internet). Liga a exigência de licença
+ * mesmo em modo desenvolvimento e confere cada resposta possível da API.
+ */
+function testarLicenca_(r) {
+  const props = PropertiesService.getDocumentProperties();
+  const chamadas = [];
+  let resposta = null;
+  apiLicenca_ = (rota, dados) => { chamadas.push({ rota: rota, dados: dados }); return typeof resposta === 'function' ? resposta(rota, dados) : resposta; };
+  testandoLicenca_ = true;
+  props.deleteProperty(PROP_LICENCA);
+  const amanha = new Date(Date.now() + 864e5).toISOString();
+  const ontem = new Date(Date.now() - 864e5).toISOString();
+  const token = plano => ({ aprovacao: 'x', validoAte: amanha, plano: plano, mostrarMarca: plano !== 'AGENCIA' });
+  const gravar = () => salvarCliente({ nome: MARCA_TESTE + ' Licença ' + Math.random().toString(36).slice(2, 7) });
+  const CHAVE = 'DD-ABCD-EFGH-JKMN';
+
+  r.erro('Licença: sem ativação, gravar é recusado (DD-01)', gravar(), 'DD-01');
+  r.igual('Licença: sem ativação, nem chama o servidor', chamadas.length, 0);
+
+  r.erro('Licença: chave em formato errado recusada sem chamar o servidor', ativarLicenca({ chave: 'abc', cliente: 'Doces' }), 'DD-19');
+  r.erro('Licença: sem nome do cliente recusado', ativarLicenca({ chave: CHAVE, cliente: ' ' }), 'DD-10');
+  r.igual('Licença: validação local não chama o servidor', chamadas.length, 0);
+
+  resposta = { status: 404, corpo: { codigo: 'CHAVE_INEXISTENTE' } };
+  r.erro('Licença: chave inexistente (DD-02)', ativarLicenca({ chave: CHAVE, cliente: 'Doces' }), 'DD-02');
+
+  resposta = { status: 409, corpo: { codigo: 'LIMITE_ATINGIDO', usadas: 5, limite: 5, linkUpgrade: 'https://pay.hotmart.com/X?off=upg&email=a%40b.com' } };
+  const lim = ativarLicenca({ chave: CHAVE, cliente: 'Doces' });
+  r.verdadeiro('Licença: limite atingido volta com o botão de upgrade (DD-03)',
+    lim.ok && lim.dados.limiteAtingido && lim.dados.erro.codigo === 'DD-03' && lim.dados.linkUpgrade.indexOf('https://pay.hotmart.com/') === 0);
+  resposta = { status: 409, corpo: { codigo: 'LIMITE_ATINGIDO', usadas: 5, limite: 5, linkUpgrade: 'https://site-estranho.com/x' } };
+  r.igual('Licença: link de upgrade fora da Hotmart é descartado', ativarLicenca({ chave: CHAVE, cliente: 'Doces' }).dados.linkUpgrade, '');
+
+  resposta = { status: 0, corpo: {} };
+  r.erro('Licença: servidor fora do ar na ativação (DD-05)', ativarLicenca({ chave: CHAVE, cliente: 'Doces' }), 'DD-05');
+
+  resposta = { status: 201, corpo: { codigo: 'ATIVADA', usadas: 3, limite: 5, token: token('FREELANCER') } };
+  const at = ativarLicenca({ chave: ' dd abcd efgh jkmn ', cliente: 'Doces da Carla' });
+  r.verdadeiro('Licença: ativar aceita a chave digitada de qualquer jeito', at.ok && at.dados.ativada, at.ok ? '' : at.erro.titulo);
+  r.igual('Licença: ativação vai com o ID desta planilha', chamadas[chamadas.length - 1].dados.planilhaId, SpreadsheetApp.getActive().getId());
+  const info = carregarLicenca().dados;
+  r.verdadeiro('Licença: janela mostra plano, vagas e a chave mascarada',
+    info.ativada && info.plano === 'Freelancer' && info.usadas === 3 && info.limite === 5 && info.chave === 'DD-••••-••••-JKMN' && info.aprovadaHoje);
+
+  const antes = chamadas.length;
+  const g1 = gravar();
+  r.verdadeiro('Licença: aprovada hoje, grava sem chamar o servidor de novo', g1.ok && chamadas.length === antes, g1.ok ? 'chamou ' + (chamadas.length - antes) : g1.erro.titulo);
+  r.verdadeiro('Licença: plano Freelancer mostra a marca Destrava', marcaAtual_().mostrarMarcaDestrava === true);
+
+  // Aprovação vencida: a próxima gravação pede a do dia.
+  const venceu = () => { const l = lerLicencaLocal_(); l.validoAte = ontem; salvarLicencaLocal_(l); };
+  venceu();
+  resposta = { status: 200, corpo: { codigo: 'APROVADO', token: token('AGENCIA') } };
+  const g2 = gravar();
+  r.verdadeiro('Licença: aprovação vencida pede a do dia e grava', g2.ok && chamadas[chamadas.length - 1].rota === '/v1/aprovacoes', g2.ok ? '' : g2.erro.titulo);
+  r.verdadeiro('Licença: plano Agência esconde a marca Destrava', marcaAtual_().mostrarMarcaDestrava === false);
+
+  venceu();
+  resposta = { status: 0, corpo: {} };
+  r.erro('Licença: sem resposta do servidor, a planilha fica só leitura (DD-05)', gravar(), 'DD-05');
+  r.verdadeiro('Licença: leitura continua funcionando sem o servidor', carregarLicenca().ok && listarPedidos().ok);
+
+  resposta = { status: 403, corpo: { codigo: 'REVOGADA' } };
+  r.erro('Licença: licença revogada (DD-04)', gravar(), 'DD-04');
+  r.igual('Licença: janela mostra a licença cancelada', carregarLicenca().dados.situacao, 'REVOGADA');
+
+  resposta = { status: 200, corpo: { codigo: 'APROVADO', token: token('FREELANCER') } };
+  const conf = conferirLicenca();
+  r.verdadeiro('Licença: "Conferir agora" reativa depois do suporte', conf.ok && gravar().ok, conf.ok ? '' : conf.erro.titulo);
+
+  venceu();
+  resposta = { status: 404, corpo: { codigo: 'NAO_ATIVADA' } };
+  r.erro('Licença: vaga liberada no suporte pede nova ativação (DD-01)', gravar(), 'DD-01');
+
+  // Arquivo copiado: a aprovação guardada é de outra planilha e não vale aqui.
+  const l = lerLicencaLocal_();
+  l.situacao = 'APROVADA'; l.validoAte = amanha; l.planilhaId = 'outro-id-de-planilha';
+  salvarLicencaLocal_(l);
+  const n = chamadas.length;
+  r.erro('Licença: cópia do arquivo não herda a aprovação (DD-01)', gravar(), 'DD-01');
+  r.igual('Licença: cópia é barrada sem chamar o servidor', chamadas.length, n);
+
+  apiLicenca_ = chamarApiLicencas_;
+  testandoLicenca_ = false;
 }
 
 function testarAtividades_(r) {
@@ -496,7 +586,8 @@ function testarAtividades_(r) {
 function fotografar_(ss) {
   const linhas = {};
   ABAS_COM_LINHAS_DE_TESTE.forEach(n => { linhas[n] = ultimaLinhaComDados_(ss.getSheetByName(n)); });
-  return { nomeArquivo: ss.getName(), config: lerConfig(), linhas: linhas };
+  return { nomeArquivo: ss.getName(), config: lerConfig(), linhas: linhas,
+    licenca: PropertiesService.getDocumentProperties().getProperty(PROP_LICENCA) };
 }
 
 function restaurar_(ss, antes) {
@@ -506,6 +597,10 @@ function restaurar_(ss, antes) {
     const agora = ultimaLinhaComDados_(aba);
     if (agora > antes.linhas[n]) aba.deleteRows(antes.linhas[n] + 1, agora - antes.linhas[n]);
   });
+  apiLicenca_ = chamarApiLicencas_;
+  testandoLicenca_ = false;
+  const props = PropertiesService.getDocumentProperties();
+  if (antes.licenca === null) props.deleteProperty(PROP_LICENCA); else props.setProperty(PROP_LICENCA, antes.licenca);
   restaurarConfig_(antes.config);
   pintarPainel_(ss, String(antes.config.NOME_NEGOCIO || 'Painel'), String(antes.config.COR_PRINCIPAL || '#8b7bff'));
   if (ss.getName() !== antes.nomeArquivo) ss.rename(antes.nomeArquivo);

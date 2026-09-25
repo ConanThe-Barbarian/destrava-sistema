@@ -24,6 +24,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Configurações', 'abrirConfiguracoes')
     .addItem('Atividades', 'abrirAtividades')
+    .addItem('Licença', 'abrirLicenca')
     .addToUi();
 }
 

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <?!= incluir('Estilo') ?>
+  <style>
+    .situacao { border: 1px solid var(--linha); border-radius: var(--raio); padding: 14px 16px; margin-bottom: 14px; }
+    .situacao .linha { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--linha); }
+    .situacao .linha:last-child { border-bottom: 0; }
+    .situacao .linha span { color: var(--texto-2); }
+    .selo { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+    .selo.ok { background: #e3f6ee; color: var(--ok); }
+    .selo.espera { background: #fff4df; color: #9a6400; }
+    .selo.cancelada { background: #fdecef; color: var(--erro); }
+    .dev { background: #fff4df; color: #7a5200; border-radius: 8px; padding: 8px 12px; font-size: 12px; margin-bottom: 12px; }
+    .chave { font-family: Consolas, "Roboto Mono", monospace; letter-spacing: .5px; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <div class="topo" id="topo"></div>
+
+  <div class="conteudo">
+    <div class="dev" id="dev" hidden>Modo desenvolvimento: a planilha grava sem licença. No modelo de venda isto não aparece.</div>
+    <div class="carregando" id="carregando">Carregando…</div>
+
+    <div id="ativada" hidden>
+      <div class="situacao">
+        <div class="linha"><span>Situação</span><b id="vSituacao"></b></div>
+        <div class="linha"><span>Cliente</span><b id="vCliente"></b></div>
+        <div class="linha"><span>Plano</span><b id="vPlano"></b></div>
+        <div class="linha"><span>Chave</span><b id="vChave" class="chave"></b></div>
+        <div class="linha"><span>Ativações da chave</span><b id="vVagas"></b></div>
+      </div>
+      <p class="dica" id="explica"></p>
+    </div>
+
+    <form id="form" hidden autocomplete="off" novalidate>
+      <p class="dica">Cole a chave que chegou no e-mail de compra. Cada planilha de cliente usa uma ativação da chave.</p>
+      <br>
+      <div class="campo">
+        <label for="chave">Chave de licença</label>
+        <input id="chave" name="chave" class="chave" placeholder="DD-XXXX-XXXX-XXXX" maxlength="24" spellcheck="false">
+      </div>
+      <div class="campo">
+        <label for="cliente">Nome do cliente</label>
+        <input id="cliente" name="cliente" maxlength="120">
+        <small>Identifica esta planilha no suporte. Use o nome do negócio do cliente.</small>
+      </div>
+    </form>
+  </div>
+
+  <div class="acoes">
+    <button class="btn btn-secundario" data-action="fechar">Fechar</button>
+    <button class="btn btn-secundario" data-action="conferir" id="btnConferir" hidden>Conferir agora</button>
+    <button class="btn btn-principal" data-action="ativar" id="btnAtivar" hidden>Ativar planilha</button>
+  </div>
+  <div class="rodape" id="rodape"></div>
+
+  <script>const MARCA = <?!= marcaJson ?>; const PARAMS = <?!= parametrosJson ?>;</script>
+  <?!= incluir('Base') ?>
+  <script>
+    var form = document.getElementById('form');
+    var el = function (id) { return document.getElementById(id); };
+
+    function mostrar(d) {
+      el('carregando').hidden = true;
+      el('dev').hidden = !d.desenvolvimento;
+      el('ativada').hidden = !d.ativada;
+      form.hidden = d.ativada;
+      el('btnAtivar').hidden = d.ativada;
+      el('btnConferir').hidden = !d.ativada;
+      if (!d.ativada) {
+        if (!el('cliente').value) el('cliente').value = d.clienteSugerido || '';
+        el('chave').focus();
+        return;
+      }
+      var selo = d.situacao === 'REVOGADA' ? '<span class="selo cancelada">Cancelada</span>'
+        : d.aprovadaHoje ? '<span class="selo ok">Aprovada hoje</span>' : '<span class="selo espera">Aguardando a aprovação do dia</span>';
+      el('vSituacao').innerHTML = selo;
+      el('vCliente').textContent = d.cliente;
+      el('vPlano').textContent = d.plano;
+      el('vChave').textContent = d.chave;
+      el('vVagas').textContent = d.limite ? d.usadas + ' de ' + d.limite : '—';
+      el('explica').textContent = d.situacao === 'REVOGADA'
+        ? 'A licença foi cancelada. Os dados continuam aqui para consulta, mas não é possível registrar nada novo. Fale com quem instalou o sistema.'
+        : d.aprovadaHoje
+          ? 'Tudo certo. A planilha confere a licença uma vez por dia, sozinha, na primeira ação que grava.'
+          : 'A aprovação de hoje acontece sozinha na primeira ação que grava. Para conferir agora, use o botão abaixo.';
+    }
+
+    function carregar() {
+      return chamar('carregarLicenca').then(mostrar).catch(function (e) { el('carregando').hidden = true; mostrarErro(e); });
+    }
+
+    function abrirLink(url) {
+      var a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+
+    form.addEventListener('submit', function (e) { e.preventDefault(); ACOES.ativar(); });
+
+    ACOES.ativar = function () {
+      var btn = el('btnAtivar');
+      marcarErros(form, []);
+      btn.disabled = true; btn.textContent = 'Ativando…';
+      chamar('ativarLicenca', { chave: el('chave').value, cliente: el('cliente').value })
+        .then(function (r) {
+          if (r.limiteAtingido) {
+            var botoes = [{ texto: 'Fechar', valor: false }];
+            if (r.linkUpgrade) botoes.push({ texto: 'Aumentar meu plano', classe: 'btn-principal', valor: true });
+            return abrirSobre(r.erro.titulo, 'Esta chave já está em ' + r.usadas + ' de ' + r.limite + ' planilhas. ' + r.erro.acao, r.erro.codigo, botoes)
+              .then(function (ok) { if (ok) abrirLink(r.linkUpgrade); });
+          }
+          avisoRapido(r.jaEstava ? 'Esta planilha já estava ativada' : 'Planilha ativada');
+          return carregar();
+        })
+        .catch(function (e) {
+          var campo = /chave/i.test(e.titulo || '') ? 'chave' : /cliente/i.test(e.titulo || '') ? 'cliente' : null;
+          marcarErros(form, campo ? [campo] : []);
+          mostrarErro(e);
+        })
+        .then(function () { btn.disabled = false; btn.textContent = 'Ativar planilha'; });
+    };
+
+    ACOES.conferir = function () {
+      var btn = el('btnConferir');
+      btn.disabled = true; btn.textContent = 'Conferindo…';
+      chamar('conferirLicenca')
+        .then(function () { avisoRapido('Licença aprovada para hoje'); })
+        .catch(mostrarErro)
+        .then(function () { btn.disabled = false; btn.textContent = 'Conferir agora'; return carregar(); });
+    };
+
+    carregar();
+  </script>
+</body>
+</html>
